@@ -18,7 +18,9 @@ O AcerteZero é um jogo competitivo para dois jogadores. Uma fita WS2812B mostra
 - Um ponto ocupa primeiro o LED neutro, se houver; depois toma um LED do adversário. Só o alvo do jogador que pontuou é sorteado novamente, evitando repetir imediatamente o mesmo alvo. O alvo do adversário permanece ativo.
 - A partida termina quando um jogador ocupa todos os LEDs. Após a vitória, não há alvos ativos. O programa permanece em execução à espera do juiz.
 - Um aperto do botão do juiz reinicia a partida a qualquer momento: restaura a divisão inicial, remove o vencedor e sorteia um alvo para cada jogador. É necessário soltar e apertar o botão novamente para outro reinício.
-- O tratamento atual do executor descarta um lote em que duas entradas são detectadas simultaneamente. A regra definitiva para empate ainda precisa ser decidida.
+- Entradas detectadas na mesma leitura são validadas juntas contra os alvos que estavam acesos antes da leitura. Entradas repetidas e alvos apagados não geram pontos extras.
+- Se os dois jogadores acertarem simultaneamente, ambos registram um acerto e recebem novos alvos. Os avanços opostos se anulam: a divisão da fita permanece igual, inclusive quando há um LED neutro. A ordem de leitura dos botões não favorece nenhum jogador.
+- Se apenas um jogador acertar dentro do lote, o placar avança normalmente para ele. O reinício pelo juiz continua tendo prioridade sobre o lote inteiro.
 
 ## Estrutura do código
 
@@ -39,7 +41,13 @@ source ~/led-env/bin/activate
 python -m acertezero.simulator --leds --led-count 31 --judge-button
 ```
 
-Substitua `31` pela quantidade real de LEDs. O simulador mostra no terminal o alvo ativo de cada jogador. Digite `1 3`, por exemplo, para acionar o alvo 3 do jogador 1. O juiz pode pressionar o botão no GPIO 22 ou digitar `r` para reiniciar; `s` encerra. A opção `--judge-button` exige execução em um terminal Linux na Pi. Sem `--leds` e `--judge-button`, a simulação funciona em um computador comum. Para rodar os testes: `python -m unittest discover -s tests -v`.
+Substitua `31` pela quantidade real de LEDs. O simulador mostra no terminal o alvo ativo de cada jogador. Digite `1 3`, por exemplo, para acionar o alvo 3 do jogador 1; digite `1 3, 2 4` para simular dois acionamentos na mesma leitura. O juiz pode pressionar o botão no GPIO 22 ou digitar `r` para reiniciar; `s` encerra. A opção `--judge-button` exige execução em um terminal Linux na Pi. Sem `--leds` e `--judge-button`, a simulação funciona em um computador comum. Para rodar os testes: `python -m unittest discover -s tests -v`.
+
+## Simultaneidade e fila
+
+O executor atual lê os botões em lotes e processa cada lote de forma atômica. Uma fila FIFO isolada não define o empate: o primeiro evento da fila ganharia prioridade na disputa pelo LED neutro e poderia vencer antes do outro ser avaliado. Para os botões atuais, validar o lote contra um único estado e aplicar uma regra explícita de empate é mais simples e previsível.
+
+Se os alvos passarem a produzir eventos assíncronos, uma fila com captura independente, marca de tempo e uma pequena janela de simultaneidade pode preservar pulsos e agrupar entradas próximas. O tamanho dessa janela deve ser medido com os sensores reais. A animação da fita hoje bloqueia a leitura por 120 ms após um ponto individual; pulsos breves durante esse intervalo podem passar despercebidos. Antes de usar piezos, convém tornar essa animação não bloqueante ou capturar eventos em paralelo à exibição.
 
 ## Integração pendente
 

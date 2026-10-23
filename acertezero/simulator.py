@@ -15,6 +15,7 @@ def show(game: AcerteZeroGame) -> None:
     strip = "".join(symbols[game.owner_at(i)] for i in range(game.led_count))
     print(f"\n{strip}")
     print(f"J1: {game.player_1_leds} | J2: {game.player_2_leds}")
+    print(f"Acertos: J1 {game.hits_by_player[1]} | J2 {game.hits_by_player[2]}")
     if game.active_targets:
         for target in game.active_targets.values():
             print(f"ALVO ACESO: jogador {target.player}, alvo {target.number}")
@@ -44,7 +45,7 @@ def run_simulation(
     judge: Inputs | None = None,
 ) -> None:
     """Recebe acertos pelo teclado; a exibição física é independente da entrada."""
-    print("Digite jogador e alvo (ex.: 1 3). 'r' reinicia; 's' encerra.")
+    print("Digite jogador e alvo (ex.: 1 3); separe acionamentos simultâneos por vírgula (ex.: 1 3, 2 4). 'r' reinicia; 's' encerra.")
     try:
         if display is not None:
             display.show(game)
@@ -65,18 +66,21 @@ def run_simulation(
                 show(game)
                 continue
             try:
-                player, number = map(int, raw.split())
-                if player not in (1, 2) or not 1 <= number <= game.targets_per_player:
-                    raise ValueError
+                targets = []
+                for part in raw.split(","):
+                    player, number = map(int, part.split())
+                    if player not in (1, 2) or not 1 <= number <= game.targets_per_player:
+                        raise ValueError
+                    targets.append(Target(player, number))
             except ValueError:
-                print(f"Use 1..2 para jogador e 1..{game.targets_per_player} para alvo; exemplo: 2 4.")
+                print(f"Use jogador 1..2 e alvo 1..{game.targets_per_player}; exemplo: 1 3, 2 4.")
                 continue
             if game.winner is not None:
                 print("Partida encerrada. O juiz pode iniciar outra com 'r' ou pelo botão.")
                 continue
-            result = game.hit(Target(player, number))
-            print("Ponto!" if result.accepted else "Alvo apagado: sem ponto.")
-            if result.accepted and display is not None:
+            result = game.hit_many(targets)
+            print(f"{len(result.accepted_targets)} acerto(s)." if result.accepted_targets else "Alvo apagado: sem ponto.")
+            if result.accepted_targets and display is not None:
                 display.show(game, result.claimed_led)
             show(game)
     finally:

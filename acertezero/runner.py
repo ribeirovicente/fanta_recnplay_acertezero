@@ -17,10 +17,10 @@ def run(game: AcerteZeroGame, inputs: Inputs, display: Display) -> None:
                 display.show(game)
                 print("Nova partida iniciada pelo juiz.")
                 continue
-            # Um lote com acionamentos simultâneos não ganha prioridade arbitrária.
-            if len(events) == 1 and isinstance(events[0], Target):
-                result = game.hit(events[0])
-                if result.accepted:
+            targets = [event for event in events if isinstance(event, Target)]
+            if targets:
+                result = game.hit_many(targets)
+                if result.accepted_targets:
                     display.show(game, result.claimed_led)
                     if result.winner is not None:
                         print(f"Jogador {result.winner} venceu! Aguardando o juiz.")

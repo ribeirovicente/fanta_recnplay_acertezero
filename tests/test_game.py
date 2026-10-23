@@ -65,11 +65,72 @@ class AcerteZeroGameTests(unittest.TestCase):
 
         self.assertIsNone(game.winner)
         self.assertEqual((game.player_1_leds, game.neutral_leds, game.player_2_leds), (1, 1, 1))
+        self.assertEqual(game.hits_by_player, {1: 0, 2: 0})
         self.assertEqual(set(game.active_targets), {1, 2})
         self.assertTrue(game.hit(game.active_targets[2]).accepted)
 
+    def test_simultaneous_hits_cancel_score_and_refresh_both_targets(self):
+        for led_count in (5, 6):
+            with self.subTest(led_count=led_count):
+                game = AcerteZeroGame(led_count=led_count, seed=1)
+                old = game.active_targets.copy()
+                owners = tuple(game.owner_at(i) for i in range(led_count))
+
+                result = game.hit_many([old[2], old[1]])
+
+                self.assertEqual(result.accepted_targets, (old[1], old[2]))
+                self.assertIsNone(result.claimed_led)
+                self.assertEqual(tuple(game.owner_at(i) for i in range(led_count)), owners)
+                self.assertEqual(game.hits_by_player, {1: 1, 2: 1})
+                self.assertNotEqual(game.active_targets[1], old[1])
+                self.assertNotEqual(game.active_targets[2], old[2])
+                self.assertIsNone(game.winner)
+
+    def test_batch_validates_once_and_ignores_duplicates_and_inactive_targets(self):
+        game = AcerteZeroGame(led_count=5, seed=1)
+        active = game.active_targets[1]
+        inactive_number = 1 if game.active_targets[2].number != 1 else 2
+
+        result = game.hit_many([Target(2, inactive_number), active, active])
+
+        self.assertEqual(result.accepted_targets, (active,))
+        self.assertEqual(game.hits_by_player, {1: 1, 2: 0})
+        self.assertEqual((game.player_1_leds, game.neutral_leds, game.player_2_leds), (3, 0, 2))
+
+    def test_simultaneous_hit_cannot_end_match_by_polling_order(self):
+        game = AcerteZeroGame(led_count=2, seed=1)
+        result = game.hit_many(list(game.active_targets.values()))
+        self.assertIsNone(result.winner)
+        self.assertEqual((game.player_1_leds, game.player_2_leds), (1, 1))
+        self.assertEqual(set(game.active_targets), {1, 2})
+
 
 class SimulatorTests(unittest.TestCase):
+    def test_simultaneous_input_refreshes_both_target_lights(self):
+        game = AcerteZeroGame(led_count=5, seed=1)
+        old = game.active_targets.copy()
+
+        class FakeDisplay:
+            def __init__(self):
+                self.frames = []
+
+            def show(self, current_game, claimed_led=None):
+                self.frames.append((tuple(current_game.active_targets.values()), claimed_led))
+
+            def close(self):
+                pass
+
+        display = FakeDisplay()
+        entries = iter([f"2 {old[2].number}, 1 {old[1].number}", "s"])
+        with redirect_stdout(StringIO()):
+            run_simulation(game, display, read=lambda _: next(entries))
+
+        self.assertEqual(len(display.frames), 2)
+        self.assertEqual(display.frames[0], ((old[1], old[2]), None))
+        self.assertNotEqual(display.frames[1][0][0], old[1])
+        self.assertNotEqual(display.frames[1][0][1], old[2])
+        self.assertEqual(game.hits_by_player, {1: 1, 2: 1})
+
     def test_updates_led_display_at_start_and_after_valid_hit(self):
         game = AcerteZeroGame(led_count=5, seed=1)
         target_j1 = game.active_targets[1]
@@ -134,6 +195,41 @@ class SimulatorTests(unittest.TestCase):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_processes_simultaneous_inputs_and_updates_display(self):
+        game = AcerteZeroGame(led_count=5, seed=1)
+        old = game.active_targets.copy()
+
+        class FakeInputs:
+            def __init__(self):
+                self.calls = 0
+
+            def poll(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return [old[2], old[1]]
+                raise KeyboardInterrupt
+
+            def close(self):
+                pass
+
+        class FakeDisplay:
+            def __init__(self):
+                self.frames = []
+
+            def show(self, current_game, claimed_led=None):
+                self.frames.append(tuple(current_game.active_targets.values()))
+
+            def close(self):
+                pass
+
+        display = FakeDisplay()
+        with redirect_stdout(StringIO()):
+            run(game, FakeInputs(), display)
+        self.assertEqual(len(display.frames), 2)
+        self.assertEqual(game.hits_by_player, {1: 1, 2: 1})
+        self.assertNotEqual(display.frames[1][0], old[1])
+        self.assertNotEqual(display.frames[1][1], old[2])
+
     def test_waits_for_judge_after_victory_and_resets(self):
         game = AcerteZeroGame(led_count=2, seed=1)
 

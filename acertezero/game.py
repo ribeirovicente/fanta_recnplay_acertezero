@@ -18,6 +18,14 @@ class HitResult:
     active_targets: tuple[Target, ...]
 
 
+@dataclass(frozen=True)
+class BatchResult:
+    accepted_targets: tuple[Target, ...]
+    claimed_led: int | None
+    winner: int | None
+    active_targets: tuple[Target, ...]
+
+
 class AcerteZeroGame:
     """Um acerto ocupa um LED neutro ou toma um LED do adversário."""
 
@@ -42,6 +50,7 @@ class AcerteZeroGame:
         self.neutral_leds = self.led_count % 2
         self.player_2_leds = self.led_count // 2
         self.winner: int | None = None
+        self.hits_by_player = {1: 0, 2: 0}
         self.active_targets = {player: self._pick_target(player) for player in (1, 2)}
 
     def _pick_target(self, player: int, previous: Target | None = None) -> Target:
@@ -53,11 +62,39 @@ class AcerteZeroGame:
         return Target(player, self.rng.choice(choices))
 
     def hit(self, target: Target) -> HitResult:
+        """Processa um acionamento individual."""
+        result = self.hit_many((target,))
+        return HitResult(bool(result.accepted_targets), result.claimed_led, result.winner, result.active_targets)
+
+    def hit_many(self, targets: tuple[Target, ...] | list[Target]) -> BatchResult:
+        """Aplica um lote aos alvos que estavam ativos no início da leitura."""
+        if self.winner is not None:
+            return BatchResult((), None, self.winner, tuple(self.active_targets.values()))
+
+        detected = set(targets)
+        accepted = tuple(
+            self.active_targets[player]
+            for player in (1, 2)
+            if self.active_targets[player] in detected
+        )
+        if len(accepted) == 2:
+            # Os avanços opostos se anulam, inclusive no LED neutro.
+            for target in accepted:
+                self.hits_by_player[target.player] += 1
+                self.active_targets[target.player] = self._pick_target(target.player, previous=target)
+            return BatchResult(accepted, None, None, tuple(self.active_targets.values()))
+        if len(accepted) == 1:
+            result = self._hit_single(accepted[0])
+            return BatchResult(accepted, result.claimed_led, result.winner, result.active_targets)
+        return BatchResult((), None, None, tuple(self.active_targets.values()))
+
+    def _hit_single(self, target: Target) -> HitResult:
         """Processa um acionamento. Cada jogador tem seu próprio alvo aceso."""
         if self.winner is not None or target != self.active_targets.get(target.player):
             return HitResult(False, None, self.winner, tuple(self.active_targets.values()))
 
         player = target.player
+        self.hits_by_player[player] += 1
         if self.neutral_leds:
             self.neutral_leds = 0
         elif player == 1:
