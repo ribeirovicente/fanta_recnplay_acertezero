@@ -34,9 +34,13 @@ class AcerteZeroGame:
         self.led_count = led_count
         self.targets_per_player = targets_per_player
         self.rng = Random(seed)
-        self.player_1_leds = led_count // 2
-        self.neutral_leds = led_count % 2
-        self.player_2_leds = led_count // 2
+        self.reset()
+
+    def reset(self) -> None:
+        """Inicia nova partida, mantendo as configurações e o gerador aleatório."""
+        self.player_1_leds = self.led_count // 2
+        self.neutral_leds = self.led_count % 2
+        self.player_2_leds = self.led_count // 2
         self.winner: int | None = None
         self.active_targets = {player: self._pick_target(player) for player in (1, 2)}
 

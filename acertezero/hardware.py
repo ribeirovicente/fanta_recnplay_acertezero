@@ -7,6 +7,7 @@ import adafruit_pixelbuf
 import digitalio
 from adafruit_raspberry_pi5_neopixel_write import neopixel_write
 
+from .events import RESET, ResetEvent
 from .game import Target, AcerteZeroGame
 
 
@@ -60,7 +61,7 @@ class DigitalButtons:
             self.last_raw[target] = pressed
             self.changed_at[target] = now
 
-    def poll(self) -> list[Target]:
+    def poll(self) -> list[Target | ResetEvent]:
         now = time.monotonic()
         events = []
         for target, port in self.inputs.items():
@@ -77,6 +78,34 @@ class DigitalButtons:
     def close(self) -> None:
         for port in self.inputs.values():
             port.deinit()
+
+
+class JudgeButton:
+    """Botão do juiz entre um GPIO e GND, com pull-up e debounce."""
+
+    def __init__(self, pin, debounce: float = 0.05):
+        self.port = digitalio.DigitalInOut(pin)
+        self.port.direction = digitalio.Direction.INPUT
+        self.port.pull = digitalio.Pull.UP
+        self.debounce = debounce
+        self.stable = not self.port.value
+        self.last_raw = self.stable
+        self.changed_at = time.monotonic()
+
+    def poll(self) -> list[Target | ResetEvent]:
+        now = time.monotonic()
+        pressed = not self.port.value
+        if pressed != self.last_raw:
+            self.last_raw = pressed
+            self.changed_at = now
+        if pressed != self.stable and now - self.changed_at >= self.debounce:
+            self.stable = pressed
+            if pressed:
+                return [RESET]
+        return []
+
+    def close(self) -> None:
+        self.port.deinit()
 
 
 class DigitalTargetLights:

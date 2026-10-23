@@ -9,10 +9,10 @@ Cada jogador tem cinco alvos; um alvo de cada lado fica ativo durante a partida.
 Na pasta do projeto, com o ambiente virtual da Pi ativado:
 
 ```bash
-python -m acertezero.simulator --leds --led-count 31
+python -m acertezero.simulator --leds --led-count 31 --judge-button
 ```
 
-Troque `31` pela quantidade real de LEDs. Sem `--leds`, a simulação roda somente no terminal. Digite `1 3`, por exemplo, para acionar o alvo 3 do jogador 1; `s` encerra.
+Troque `31` pela quantidade real de LEDs. Digite `1 3`, por exemplo, para acionar o alvo 3 do jogador 1. O botão do juiz fica entre GPIO 22 (pino físico 15) e GND; `r` simula esse botão pelo teclado e `s` encerra. Sem `--leds` e `--judge-button`, a simulação roda em um computador comum.
 
 ## Testes e contexto
 

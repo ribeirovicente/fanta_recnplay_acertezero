@@ -2,7 +2,9 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 
+from acertezero.events import RESET
 from acertezero.game import Target, AcerteZeroGame
+from acertezero.runner import run
 from acertezero.simulator import run_simulation
 
 
@@ -53,6 +55,19 @@ class AcerteZeroGameTests(unittest.TestCase):
         self.assertFalse(game.hit(Target(2, 1)).accepted)
         self.assertEqual((game.player_1_leds, game.player_2_leds), (2, 0))
 
+    def test_reset_after_win_starts_new_match(self):
+        game = AcerteZeroGame(led_count=3, seed=1)
+        game.hit(game.active_targets[1])
+        game.hit(game.active_targets[1])
+        self.assertEqual(game.winner, 1)
+
+        game.reset()
+
+        self.assertIsNone(game.winner)
+        self.assertEqual((game.player_1_leds, game.neutral_leds, game.player_2_leds), (1, 1, 1))
+        self.assertEqual(set(game.active_targets), {1, 2})
+        self.assertTrue(game.hit(game.active_targets[2]).accepted)
+
 
 class SimulatorTests(unittest.TestCase):
     def test_updates_led_display_at_start_and_after_valid_hit(self):
@@ -93,6 +108,69 @@ class SimulatorTests(unittest.TestCase):
         self.assertEqual(display.frames[1][2], 2)
         self.assertEqual(display.frames[2][0], (1, 1, 2, 2, 2))
         self.assertEqual(display.frames[2][2], 2)
+        self.assertTrue(display.closed)
+
+    def test_keyboard_reset_works_after_victory(self):
+        game = AcerteZeroGame(led_count=2, seed=1)
+
+        class FakeDisplay:
+            def __init__(self):
+                self.frames = []
+
+            def show(self, current_game, claimed_led=None):
+                self.frames.append((current_game.player_1_leds, current_game.player_2_leds, current_game.winner))
+
+            def close(self):
+                pass
+
+        display = FakeDisplay()
+        winning_target = game.active_targets[1]
+        entries = iter([f"1 {winning_target.number}", "r", "s"])
+        with redirect_stdout(StringIO()):
+            run_simulation(game, display, read=lambda _: next(entries))
+
+        self.assertEqual(display.frames, [(1, 1, None), (2, 0, 1), (1, 1, None)])
+        self.assertIsNone(game.winner)
+
+
+class RunnerTests(unittest.TestCase):
+    def test_waits_for_judge_after_victory_and_resets(self):
+        game = AcerteZeroGame(led_count=2, seed=1)
+
+        class FakeInputs:
+            def __init__(self):
+                self.calls = 0
+                self.closed = False
+
+            def poll(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return [game.active_targets[1]]
+                if self.calls == 2:
+                    return [RESET]
+                raise KeyboardInterrupt
+
+            def close(self):
+                self.closed = True
+
+        class FakeDisplay:
+            def __init__(self):
+                self.frames = []
+                self.closed = False
+
+            def show(self, current_game, claimed_led=None):
+                self.frames.append((current_game.player_1_leds, current_game.player_2_leds, current_game.winner))
+
+            def close(self):
+                self.closed = True
+
+        inputs = FakeInputs()
+        display = FakeDisplay()
+        with redirect_stdout(StringIO()):
+            run(game, inputs, display)
+
+        self.assertEqual(display.frames, [(1, 1, None), (2, 0, 1), (1, 1, None)])
+        self.assertTrue(inputs.closed)
         self.assertTrue(display.closed)
 
 
