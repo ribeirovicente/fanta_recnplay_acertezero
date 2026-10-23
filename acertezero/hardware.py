@@ -24,7 +24,7 @@ class Pi5Pixelbuf(adafruit_pixelbuf.PixelBuf):
 class ScoreStrip:
     """Exibe apenas o território de cada jogador na fita WS2812B."""
 
-    COLORS = {0: (12, 12, 12), 1: (252, 77, 15), 2: (93, 0, 150)}
+    COLORS = {0: (12, 12, 12), 1: (15, 252, 77), 2: (150, 93, 0)}
 
     def __init__(self, data_pin, led_count: int):
         self.pixels = Pi5Pixelbuf(data_pin, led_count, auto_write=False, byteorder="BGR")
