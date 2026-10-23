@@ -4,17 +4,17 @@ import time
 
 from .events import RESET
 from .game import AcerteZeroGame, Target
-from .interfaces import Display, Inputs
+from .interfaces import Display, Inputs, show_start
 
 
 def run(game: AcerteZeroGame, inputs: Inputs, display: Display) -> None:
     try:
-        display.show(game)
+        show_start(display, game)
         while True:
             events = inputs.poll()
             if RESET in events:
                 game.reset()
-                display.show(game)
+                show_start(display, game)
                 print("Nova partida iniciada pelo juiz.")
                 continue
             targets = [event for event in events if isinstance(event, Target)]

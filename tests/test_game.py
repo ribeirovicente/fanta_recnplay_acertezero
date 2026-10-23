@@ -1,11 +1,14 @@
 import unittest
+from types import ModuleType
 from contextlib import redirect_stdout
 from io import StringIO
+from unittest.mock import patch
 
 from acertezero.events import RESET
 from acertezero.game import Target, AcerteZeroGame
 from acertezero.runner import run
-from acertezero.simulator import run_simulation
+from acertezero.simulator import main, parse_target_led_pins, run_simulation
+from acertezero.target_lights import play_start_animation
 
 
 class AcerteZeroGameTests(unittest.TestCase):
@@ -105,7 +108,102 @@ class AcerteZeroGameTests(unittest.TestCase):
         self.assertEqual(set(game.active_targets), {1, 2})
 
 
+class TargetAnimationTests(unittest.TestCase):
+    def test_start_animation_sweeps_both_sides_and_reveals_active_targets(self):
+        frames = []
+        delays = []
+
+        class FakeLights:
+            def show(self, active):
+                frames.append(active)
+
+        active = (Target(1, 2), Target(2, 3))
+        play_start_animation(FakeLights(), 3, active, frame_seconds=0.01, sleep=delays.append)
+
+        self.assertEqual(frames, [
+            (Target(1, 1), Target(2, 1)),
+            (Target(1, 2), Target(2, 2)),
+            (Target(1, 3), Target(2, 3)),
+            (Target(1, 2), Target(2, 2)),
+            (Target(1, 1), Target(2, 1)),
+            (),
+            active,
+        ])
+        self.assertEqual(delays, [0.01] * 6)
+
+
 class SimulatorTests(unittest.TestCase):
+    def test_cli_builds_target_light_mapping_in_target_order(self):
+        board = ModuleType("board")
+        for pin in (5, 6, 12, 13, 19, 20, 21, 23, 24, 25):
+            setattr(board, f"D{pin}", f"gpio-{pin}")
+        board.D16 = "strip-gpio"
+        hardware = ModuleType("acertezero.hardware")
+        captured = {}
+
+        class FakeScoreStrip:
+            def __init__(self, pin, count):
+                captured["score"] = (pin, count)
+
+        class FakeTargetLights:
+            def __init__(self, mapping):
+                captured["targets"] = mapping
+
+        class FakeGameDisplay:
+            def __init__(self, score, targets):
+                captured["display"] = self
+
+        hardware.ScoreStrip = FakeScoreStrip
+        hardware.DigitalTargetLights = FakeTargetLights
+        hardware.GameDisplay = FakeGameDisplay
+        hardware.JudgeButton = object
+
+        with patch.dict("sys.modules", {"board": board, "acertezero.hardware": hardware}):
+            with patch("acertezero.simulator.run_simulation") as simulated:
+                main([
+                    "--leds", "--led-count", "31",
+                    "--target-led-pins-j1", "5,6,12,13,19",
+                    "--target-led-pins-j2", "20,21,23,24,25",
+                ])
+
+        self.assertEqual(captured["score"], ("strip-gpio", 31))
+        self.assertEqual(captured["targets"][Target(1, 3)], "gpio-12")
+        self.assertEqual(captured["targets"][Target(2, 5)], "gpio-25")
+        self.assertEqual(len(captured["targets"]), 10)
+        self.assertIs(simulated.call_args.args[1], captured["display"])
+
+    def test_target_led_pin_list_requires_one_pin_per_target(self):
+        self.assertEqual(parse_target_led_pins("5, 6, 12", 3), (5, 6, 12))
+        with self.assertRaises(ValueError):
+            parse_target_led_pins("5,6", 3)
+        with self.assertRaises(ValueError):
+            parse_target_led_pins("5,x,12", 3)
+
+    def test_uses_start_animation_on_initial_display_and_reset(self):
+        game = AcerteZeroGame(led_count=5, seed=1)
+
+        class FakeDisplay:
+            def __init__(self):
+                self.starts = []
+                self.shows = 0
+
+            def start(self, current_game):
+                self.starts.append(tuple(current_game.active_targets.values()))
+
+            def show(self, current_game, claimed_led=None):
+                self.shows += 1
+
+            def close(self):
+                pass
+
+        display = FakeDisplay()
+        entries = iter(["r", "s"])
+        with redirect_stdout(StringIO()):
+            run_simulation(game, display, read=lambda _: next(entries))
+
+        self.assertEqual(len(display.starts), 2)
+        self.assertEqual(display.shows, 0)
+
     def test_simultaneous_input_refreshes_both_target_lights(self):
         game = AcerteZeroGame(led_count=5, seed=1)
         old = game.active_targets.copy()
@@ -195,6 +293,43 @@ class SimulatorTests(unittest.TestCase):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_uses_start_animation_on_initial_display_and_judge_reset(self):
+        game = AcerteZeroGame(led_count=5, seed=1)
+
+        class FakeInputs:
+            def __init__(self):
+                self.calls = 0
+
+            def poll(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return [RESET]
+                raise KeyboardInterrupt
+
+            def close(self):
+                pass
+
+        class FakeDisplay:
+            def __init__(self):
+                self.starts = 0
+                self.shows = 0
+
+            def start(self, current_game):
+                self.starts += 1
+
+            def show(self, current_game, claimed_led=None):
+                self.shows += 1
+
+            def close(self):
+                pass
+
+        display = FakeDisplay()
+        with redirect_stdout(StringIO()):
+            run(game, FakeInputs(), display)
+
+        self.assertEqual(display.starts, 2)
+        self.assertEqual(display.shows, 0)
+
     def test_processes_simultaneous_inputs_and_updates_display(self):
         game = AcerteZeroGame(led_count=5, seed=1)
         old = game.active_targets.copy()

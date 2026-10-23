@@ -9,6 +9,7 @@ from adafruit_raspberry_pi5_neopixel_write import neopixel_write
 
 from .events import RESET, ResetEvent
 from .game import Target, AcerteZeroGame
+from .target_lights import play_start_animation
 
 
 class Pi5Pixelbuf(adafruit_pixelbuf.PixelBuf):
@@ -140,6 +141,15 @@ class GameDisplay:
     def show(self, game: AcerteZeroGame, claimed_led: int | None = None) -> None:
         self.targets.show(tuple(game.active_targets.values()))
         self.score.show(game, claimed_led)
+
+    def start(self, game: AcerteZeroGame) -> None:
+        """Anima os indicadores no início ou reinício e revela os alvos ativos."""
+        self.score.show(game)
+        play_start_animation(
+            self.targets,
+            game.targets_per_player,
+            tuple(game.active_targets.values()),
+        )
 
     def close(self) -> None:
         self.targets.close()

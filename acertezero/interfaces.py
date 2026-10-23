@@ -35,3 +35,12 @@ class Display(Protocol):
         """Exibe placar e os dois alvos ativos durante a partida."""
 
     def close(self) -> None: ...
+
+
+def show_start(display: Display, game: AcerteZeroGame) -> None:
+    """Usa a animação opcional do display, preservando displays simples."""
+    start = getattr(display, "start", None)
+    if start is None:
+        display.show(game)
+    else:
+        start(game)

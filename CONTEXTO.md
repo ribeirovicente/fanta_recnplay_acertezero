@@ -21,12 +21,14 @@ O AcerteZero é um jogo competitivo para dois jogadores. Uma fita WS2812B mostra
 - Entradas detectadas na mesma leitura são validadas juntas contra os alvos que estavam acesos antes da leitura. Entradas repetidas e alvos apagados não geram pontos extras.
 - Se os dois jogadores acertarem simultaneamente, ambos registram um acerto e recebem novos alvos. Os avanços opostos se anulam: a divisão da fita permanece igual, inclusive quando há um LED neutro. A ordem de leitura dos botões não favorece nenhum jogador.
 - Se apenas um jogador acertar dentro do lote, o placar avança normalmente para ele. O reinício pelo juiz continua tendo prioridade sobre o lote inteiro.
+- Quando os LEDs dos alvos estiverem configurados, o início e o reinício fazem uma varredura simultânea dos dois lados (1→5→1), apagam brevemente e revelam os dois novos alvos. Acertos durante a partida apenas atualizam os alvos, sem repetir a varredura.
 
 ## Estrutura do código
 
 - [game.py](./acertezero/game.py): regras, estado do placar e validação dos acertos, sem dependências de GPIO.
 - [interfaces.py](./acertezero/interfaces.py): contratos de entrada e exibição.
 - [hardware.py](./acertezero/hardware.py): adaptadores para fita da Pi 5, botões digitais, botão do juiz e LEDs indicadores dos alvos.
+- [target_lights.py](./acertezero/target_lights.py): sequência de início/reinício dos LEDs dos alvos, independente do hardware.
 - [events.py](./acertezero/events.py): evento de reinício do juiz, independente dos alvos.
 - [runner.py](./acertezero/runner.py): conecta entrada, regras e exibição.
 - [simulator.py](./acertezero/simulator.py): acertos digitados no terminal; pode mostrar o placar na fita real.
@@ -43,6 +45,8 @@ python -m acertezero.simulator --leds --led-count 31 --judge-button
 
 Substitua `31` pela quantidade real de LEDs. O simulador mostra no terminal o alvo ativo de cada jogador. Digite `1 3`, por exemplo, para acionar o alvo 3 do jogador 1; digite `1 3, 2 4` para simular dois acionamentos na mesma leitura. O juiz pode pressionar o botão no GPIO 22 ou digitar `r` para reiniciar; `s` encerra. A opção `--judge-button` exige execução em um terminal Linux na Pi. Sem `--leds` e `--judge-button`, a simulação funciona em um computador comum. Para rodar os testes: `python -m unittest discover -s tests -v`.
 
+Para acender os dez indicadores físicos, acrescente `--target-led-pins-j1` e `--target-led-pins-j2` ao comando. Cada opção recebe cinco GPIOs BCM separados por vírgula, na ordem dos alvos 1 a 5; ambas são necessárias. Os pinos devem ser exclusivos e não podem usar o GPIO 16 da fita nem o GPIO 22 do juiz quando este estiver ativo. O mapeamento real ainda depende do circuito. Sem essas opções, a fita continua funcional, mas a animação dos alvos não tem saídas físicas.
+
 ## Simultaneidade e fila
 
 O executor atual lê os botões em lotes e processa cada lote de forma atômica. Uma fila FIFO isolada não define o empate: o primeiro evento da fila ganharia prioridade na disputa pelo LED neutro e poderia vencer antes do outro ser avaliado. Para os botões atuais, validar o lote contra um único estado e aplicar uma regra explícita de empate é mais simples e previsível.
@@ -51,7 +55,7 @@ Se os alvos passarem a produzir eventos assíncronos, uma fila com captura indep
 
 ## Integração pendente
 
-- Definir a ligação e o acionamento físico dos dez LEDs indicadores; o simulador atual exibe os alvos ativos no terminal, e `DigitalTargetLights` ainda precisa receber o mapeamento de pinos. O parâmetro `--leds` acende apenas a fita do placar.
+- Definir a ligação física dos dez LEDs indicadores e passar seu mapeamento pelas opções `--target-led-pins-j1` e `--target-led-pins-j2`. As saídas são ativas em nível alto e exigem resistores ou drivers adequados aos LEDs usados; a Pi não pode alimentar lâmpadas de tensão mais alta diretamente pelos GPIOs.
 - Definir os pinos ou módulo de expansão para as dez entradas. `DigitalButtons` já implementa leitura com pull-up e debounce, mas não há um programa principal com o mapeamento físico.
 - Testar o botão do juiz no GPIO 22 e reservar esse pino no futuro mapeamento das entradas e saídas dos alvos.
 - Se os botões forem trocados por sensores piezoelétricos, criar outro adaptador de entrada que emita `Target(jogador, número)`. A Pi não possui entradas analógicas no conector GPIO; o sinal do piezo precisa de condicionamento e leitura apropriados antes de chegar à Pi.

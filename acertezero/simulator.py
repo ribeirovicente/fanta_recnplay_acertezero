@@ -7,7 +7,18 @@ from collections.abc import Callable
 
 from .events import RESET
 from .game import Target, AcerteZeroGame
-from .interfaces import Display, Inputs
+from .interfaces import Display, Inputs, show_start
+
+
+def parse_target_led_pins(value: str, expected: int) -> tuple[int, ...]:
+    """Lê uma lista de GPIOs BCM, um por alvo na ordem 1..N."""
+    try:
+        pins = tuple(int(part.strip()) for part in value.split(","))
+    except ValueError as exc:
+        raise ValueError("Informe números de GPIO separados por vírgula.") from exc
+    if len(pins) != expected or any(pin < 0 for pin in pins):
+        raise ValueError(f"Informe exatamente {expected} GPIOs não negativos por jogador.")
+    return pins
 
 
 def show(game: AcerteZeroGame) -> None:
@@ -48,7 +59,7 @@ def run_simulation(
     print("Digite jogador e alvo (ex.: 1 3); separe acionamentos simultâneos por vírgula (ex.: 1 3, 2 4). 'r' reinicia; 's' encerra.")
     try:
         if display is not None:
-            display.show(game)
+            show_start(display, game)
         show(game)
         while True:
             try:
@@ -62,7 +73,7 @@ def run_simulation(
                 game.reset()
                 print("Nova partida iniciada.")
                 if display is not None:
-                    display.show(game)
+                    show_start(display, game)
                 show(game)
                 continue
             try:
@@ -95,22 +106,56 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--leds", action="store_true", help="mostra o placar na fita da Pi 5, no GPIO 16")
     parser.add_argument("--led-count", type=int, default=31, help="número de LEDs da fita (padrão: 31)")
     parser.add_argument("--judge-button", action="store_true", help="usa botão do juiz no GPIO 22 para reiniciar")
+    parser.add_argument("--target-led-pins-j1", metavar="GPIO,...", help="GPIOs BCM dos LEDs dos alvos 1..5 do jogador 1")
+    parser.add_argument("--target-led-pins-j2", metavar="GPIO,...", help="GPIOs BCM dos LEDs dos alvos 1..5 do jogador 2")
     args = parser.parse_args(argv)
 
     if args.judge_button and sys.platform != "linux":
         parser.error("--judge-button requer um terminal Linux na Raspberry Pi")
 
     game = AcerteZeroGame(led_count=args.led_count)
+    target_pins = None
+    if (args.target_led_pins_j1 is None) != (args.target_led_pins_j2 is None):
+        parser.error("Informe os GPIOs dos LEDs dos dois jogadores.")
+    if args.target_led_pins_j1 is not None:
+        if not args.leds:
+            parser.error("Os LEDs dos alvos exigem --leds para montar o display completo.")
+        try:
+            target_pins = {
+                1: parse_target_led_pins(args.target_led_pins_j1, game.targets_per_player),
+                2: parse_target_led_pins(args.target_led_pins_j2, game.targets_per_player),
+            }
+        except ValueError as exc:
+            parser.error(str(exc))
+        all_pins = target_pins[1] + target_pins[2]
+        if len(set(all_pins)) != len(all_pins):
+            parser.error("Cada LED de alvo precisa de um GPIO diferente.")
+        reserved = {16} | ({22} if args.judge_button else set())
+        if reserved.intersection(all_pins):
+            parser.error("GPIO 16 pertence à fita e GPIO 22 ao botão do juiz, quando ativado.")
+
     display = None
     judge = None
     if args.leds or args.judge_button:
         try:
             import board
-            from .hardware import JudgeButton, ScoreStrip
+            from .hardware import DigitalTargetLights, GameDisplay, JudgeButton, ScoreStrip
         except ImportError as exc:
             raise SystemExit("Bibliotecas da Pi 5 indisponíveis. Ative o ambiente ~/led-env.") from exc
         if args.leds:
-            display = ScoreStrip(board.D16, args.led_count)
+            score = ScoreStrip(board.D16, args.led_count)
+            if target_pins is None:
+                display = score
+            else:
+                try:
+                    pin_map = {
+                        Target(player, index): getattr(board, f"D{pin}")
+                        for player, pins in target_pins.items()
+                        for index, pin in enumerate(pins, start=1)
+                    }
+                except AttributeError as exc:
+                    parser.error(f"GPIO indisponível nesta placa: {exc}")
+                display = GameDisplay(score, DigitalTargetLights(pin_map))
         if args.judge_button:
             judge = JudgeButton(board.D22)
     run_simulation(game, display, judge=judge)
