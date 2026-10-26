@@ -32,7 +32,11 @@ O AcerteZero é um jogo competitivo para dois jogadores. Uma fita WS2812B mostra
 - [events.py](./acertezero/events.py): evento de reinício do juiz, independente dos alvos.
 - [runner.py](./acertezero/runner.py): conecta entrada, regras e exibição.
 - [simulator.py](./acertezero/simulator.py): acertos digitados no terminal; pode mostrar o placar na fita real.
+- [serial_inputs.py](./acertezero/serial_inputs.py): lê os eventos USB dos dois Nanos, valida o jogador por porta e agrupa acionamentos próximos.
+- [piezo_game.py](./acertezero/piezo_game.py): executa o jogo com as duas portas, opcionalmente com fita, indicadores de alvos e botão do juiz.
+- [piezo_target.ino](./arduino/piezo_target/piezo_target.ino): mesmo firmware nos dois Nanos, com `PLAYER` configurado como 1 ou 2; cada um lê cinco piezos em A0..A4.
 - [test_game.py](./tests/test_game.py): testes da divisão da fita, validação dos alvos, pontuação, vitória, reinício e atualização da exibição.
+- [test_serial_inputs.py](./tests/test_serial_inputs.py): testes do protocolo serial e da integração com o jogo, sem hardware.
 
 ## Como executar
 
@@ -51,12 +55,22 @@ Para acender os dez indicadores físicos, acrescente `--target-led-pins-j1` e `-
 
 O executor atual lê os botões em lotes e processa cada lote de forma atômica. Uma fila FIFO isolada não define o empate: o primeiro evento da fila ganharia prioridade na disputa pelo LED neutro e poderia vencer antes do outro ser avaliado. Para os botões atuais, validar o lote contra um único estado e aplicar uma regra explícita de empate é mais simples e previsível.
 
-Se os alvos passarem a produzir eventos assíncronos, uma fila com captura independente, marca de tempo e uma pequena janela de simultaneidade pode preservar pulsos e agrupar entradas próximas. O tamanho dessa janela deve ser medido com os sensores reais. A animação da fita hoje bloqueia a leitura por 120 ms após um ponto individual; pulsos breves durante esse intervalo podem passar despercebidos. Antes de usar piezos, convém tornar essa animação não bloqueante ou capturar eventos em paralelo à exibição.
+Se os alvos passarem a produzir eventos assíncronos, uma fila com captura independente, marca de tempo e uma pequena janela de simultaneidade pode preservar pulsos e agrupar entradas próximas. O tamanho dessa janela deve ser medido com os sensores reais. A animação da fita hoje bloqueia a leitura por 120 ms após um ponto individual. O piloto com Nano detecta o pulso no microcontrolador e o evento enviado fica no buffer serial até a Pi voltar a ler; a simultaneidade entre eventos de Nanos diferentes ainda não é garantida.
+
+## Piloto do piezo
+
+Cada Nano atende aos cinco alvos de um jogador, em A0..A4. Por padrão, somente A0 está habilitado no sketch para montar o circuito gradualmente; os demais canais são habilitados quando recebem seus piezos. Cada sensor usa um resistor de 1 MΩ em paralelo e 10 kΩ em série com a entrada. O firmware envia `H,jogador,alvo,valor` pela USB; a Pi lê as duas portas com `pyserial` e reúne eventos recebidos em até 30 ms no mesmo lote. O comando `python -m acertezero.piezo_game --port-j1 /dev/ttyUSB0 --port-j2 /dev/ttyUSB1 --pilot --leds --led-count 31 --judge-button` testa primeiro o alvo 1 de cada lado. Ajuste as portas e a quantidade de LEDs à montagem. As ligações e a calibração estão no [README.md](./README.md#piezos-um-arduino-nano-por-jogador).
+
+Cada canal do Nano acumula amostras em janelas de 100 ms e calcula `diagnosticSum[index] / diagnosticCount[index]`. Uma subida da média maior que 50 em relação à janela anterior produz `bateu` no Monitor Serial e o evento digital `H,jogador,alvo,media` para a Pi. A primeira janela estabelece a referência e não gera toque; a queda não pontua. Após uma batida, o canal rearma somente após 120 ms e uma queda de pelo menos 25 na média. Os primeiros 300 ms após reset são ignorados. Esses valores são pontos de partida, não calibração validada para o alvo real. `PRINT_PEAKS` produz estatísticas separadas de 100 ms para diagnóstico e deve ser desligado durante o jogo. A janela longa reduz ruído rápido, mas pode diluir batidas breves; o ajuste deve comparar as variações de repouso com as batidas intencionais.
+
+Na calibração de A0, foram relatadas leituras `1023` frequentes após substituir o resistor **em série** de 10 kΩ por 1 MΩ. A ligação recomendada continua sendo **1 MΩ em paralelo com o piezo e 10 kΩ em série até A0**. O diagnóstico `P` mostra mínimo, média, máximo, número de amostras em 1023 e número total de amostras por janela de 100 ms; isso distingue um pico breve de uma entrada presa no máximo. Os valores reais e a proteção elétrica ainda precisam ser validados na bancada.
+
+Sem `--pilot`, o jogo usa os cinco alvos por jogador. Indicadores físicos dos dez alvos podem ser mapeados por `--target-led-pins-j1` e `--target-led-pins-j2`; sem essas opções, os alvos ativos aparecem somente no terminal. A latência da USB e a janela de simultaneidade precisam ser medidas no hardware real. O funcionamento dos piezos na montagem final ainda não foi validado.
 
 ## Integração pendente
 
 - Definir a ligação física dos dez LEDs indicadores e passar seu mapeamento pelas opções `--target-led-pins-j1` e `--target-led-pins-j2`. As saídas são ativas em nível alto e exigem resistores ou drivers adequados aos LEDs usados; a Pi não pode alimentar lâmpadas de tensão mais alta diretamente pelos GPIOs.
-- Definir os pinos ou módulo de expansão para as dez entradas. `DigitalButtons` já implementa leitura com pull-up e debounce, mas não há um programa principal com o mapeamento físico.
+- Montar e testar os dez circuitos de piezo, distribuídos em cinco entradas analógicas por Nano; `DigitalButtons` continua disponível para uma montagem alternativa com botões.
 - Testar o botão do juiz no GPIO 22 e reservar esse pino no futuro mapeamento das entradas e saídas dos alvos.
-- Se os botões forem trocados por sensores piezoelétricos, criar outro adaptador de entrada que emita `Target(jogador, número)`. A Pi não possui entradas analógicas no conector GPIO; o sinal do piezo precisa de condicionamento e leitura apropriados antes de chegar à Pi.
+- Definir a proteção elétrica dos sensores para impactos reais, ligar os indicadores dos alvos e calibrar os limiares individualmente.
 - Testar o sistema completo na Pi 5 depois de montar os dez alvos. Os testes automatizados atuais verificam a lógica e a exibição com uma implementação simulada, sem acesso ao hardware.

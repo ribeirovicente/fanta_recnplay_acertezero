@@ -1,0 +1,130 @@
+"""Executa o jogo com cinco piezos por jogador, lidos por dois Nanos USB."""
+
+import argparse
+import sys
+
+from .game import AcerteZeroGame, Target
+from .interfaces import show_start
+from .runner import run
+from .serial_inputs import SerialTargetInputs, TwoNanoInputs
+from .simulator import parse_target_led_pins
+
+
+class ConsoleDisplay:
+    """Mostra os acertos no terminal e, opcionalmente, na fita física."""
+
+    def __init__(self, display=None):
+        self.display = display
+
+    def start(self, game: AcerteZeroGame) -> None:
+        if self.display is not None:
+            show_start(self.display, game)
+        self._print(game)
+
+    def show(self, game: AcerteZeroGame, claimed_led: int | None = None) -> None:
+        if self.display is not None:
+            self.display.show(game, claimed_led)
+        self._print(game)
+
+    @staticmethod
+    def _print(game: AcerteZeroGame) -> None:
+        targets = ", ".join(f"J{t.player}:{t.number}" for t in game.active_targets.values())
+        print(
+            f"Placar J1={game.player_1_leds} J2={game.player_2_leds} | "
+            f"acertos J1={game.hits_by_player[1]} J2={game.hits_by_player[2]} | "
+            f"alvos: {targets or 'nenhum'}",
+            flush=True,
+        )
+
+    def close(self) -> None:
+        if self.display is not None:
+            self.display.close()
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="AcerteZero com dois Arduino Nano USB, um por jogador")
+    parser.add_argument("--port-j1", required=True, help="porta USB do Nano do jogador 1")
+    parser.add_argument("--port-j2", required=True, help="porta USB do Nano do jogador 2")
+    parser.add_argument("--led-count", type=int, default=31, help="quantidade de LEDs da fita")
+    parser.add_argument("--pilot", action="store_true", help="um alvo por jogador para testar primeiro A0 em cada Nano")
+    parser.add_argument("--leds", action="store_true", help="acende a fita no GPIO 16")
+    parser.add_argument("--judge-button", action="store_true", help="usa o botão do juiz no GPIO 22")
+    parser.add_argument("--target-led-pins-j1", metavar="GPIO,...", help="GPIOs BCM dos LEDs dos alvos 1..5 do jogador 1")
+    parser.add_argument("--target-led-pins-j2", metavar="GPIO,...", help="GPIOs BCM dos LEDs dos alvos 1..5 do jogador 2")
+    args = parser.parse_args(argv)
+    if args.port_j1 == args.port_j2:
+        parser.error("Informe duas portas seriais diferentes, uma para cada Nano.")
+    if (args.leds or args.judge_button) and sys.platform != "linux":
+        parser.error("Os GPIOs exigem a Raspberry Pi com Linux.")
+
+    game = AcerteZeroGame(args.led_count, targets_per_player=1 if args.pilot else 5)
+    target_pins = None
+    if (args.target_led_pins_j1 is None) != (args.target_led_pins_j2 is None):
+        parser.error("Informe os GPIOs dos LEDs dos dois jogadores.")
+    if args.target_led_pins_j1 is not None:
+        if not args.leds:
+            parser.error("Os LEDs dos alvos exigem --leds.")
+        try:
+            target_pins = {
+                1: parse_target_led_pins(args.target_led_pins_j1, game.targets_per_player),
+                2: parse_target_led_pins(args.target_led_pins_j2, game.targets_per_player),
+            }
+        except ValueError as exc:
+            parser.error(str(exc))
+        all_pins = target_pins[1] + target_pins[2]
+        if len(set(all_pins)) != len(all_pins):
+            parser.error("Cada LED de alvo precisa de um GPIO diferente.")
+        reserved = {16} | ({22} if args.judge_button else set())
+        if reserved.intersection(all_pins):
+            parser.error("GPIO 16 pertence à fita e GPIO 22 ao botão do juiz, quando ativado.")
+
+    display = None
+    judge = None
+    if args.leds or args.judge_button:
+        try:
+            import board
+            from .hardware import DigitalTargetLights, GameDisplay, JudgeButton, ScoreStrip
+        except ImportError as exc:
+            raise SystemExit("Bibliotecas da Pi 5 indisponíveis. Ative o ambiente ~/led-env.") from exc
+        if args.leds:
+            score = ScoreStrip(board.D16, args.led_count)
+            if target_pins is None:
+                display = score
+            else:
+                try:
+                    pin_map = {
+                        Target(player, index): getattr(board, f"D{pin}")
+                        for player, pins in target_pins.items()
+                        for index, pin in enumerate(pins, start=1)
+                    }
+                except AttributeError as exc:
+                    parser.error(f"GPIO indisponível nesta placa: {exc}")
+                display = GameDisplay(score, DigitalTargetLights(pin_map))
+        if args.judge_button:
+            judge = JudgeButton(board.D22)
+
+    try:
+        first = SerialTargetInputs(args.port_j1, targets_per_player=game.targets_per_player, expected_player=1)
+    except Exception:
+        if judge is not None:
+            judge.close()
+        if display is not None:
+            display.close()
+        raise
+    try:
+        second = SerialTargetInputs(args.port_j2, targets_per_player=game.targets_per_player, expected_player=2)
+    except Exception:
+        first.close()
+        if judge is not None:
+            judge.close()
+        if display is not None:
+            display.close()
+        raise
+    inputs = TwoNanoInputs(first, second, judge)
+
+    print("Aguardando mensagens dos dois Nanos. Pressione Ctrl+C para encerrar.", flush=True)
+    run(game, inputs, ConsoleDisplay(display))
+
+
+if __name__ == "__main__":
+    main()
