@@ -81,24 +81,38 @@ Os cinco canais são lidos em sequência por `analogRead()`. A decisão usa a m�
 
 ### Teste na Raspberry Pi
 
-Na pasta do projeto, ative o ambiente Python e descubra as duas portas. Elas podem ser `/dev/ttyUSB0` e `/dev/ttyUSB1`, ou `/dev/ttyACM0` e `/dev/ttyACM1`; não presuma qual pertence a cada jogador. Teste uma de cada vez ou use os nomes persistentes de `/dev/serial/by-id/` quando disponíveis.
+Na Pi, tenha uma cópia atualizada deste repositório e execute os comandos **na pasta do projeto**, com o ambiente Python já usado para a fita. Conecte os dois Nanos por cabos USB de dados. Confira que o sketch gravado no Nano J1 tem `PLAYER = 1` e o do J2 tem `PLAYER = 2`. As portas podem ser `/dev/ttyUSB0` e `/dev/ttyUSB1`, ou `/dev/ttyACM0` e `/dev/ttyACM1`; não presuma qual pertence a cada jogador. Prefira os nomes persistentes em `/dev/serial/by-id/` quando distinguirem as placas. Se as placas iguais não aparecerem com nomes distintos, confira `/dev/serial/by-path/` e mantenha cada Nano na mesma porta USB física.
 
 ```bash
 source ~/led-env/bin/activate
 python -m pip install pyserial
 python -m serial.tools.list_ports -v
 ls -l /dev/serial/by-id/
+ls -l /dev/serial/by-path/
+id -nG
 ```
 
-Com apenas `A0` conectado em cada Nano, faça o teste inicial no terminal, sem fita:
+Se abrir a porta causar `Permission denied`, confira o grupo do dispositivo com `ls -l /dev/ttyUSB0` (troque pelo nome detectado). Se o grupo for `dialout` e ele não aparecer em `id -nG`, execute `sudo usermod -aG dialout "$USER"`, encerre a sessão da Pi e entre novamente antes de testar. Não use `sudo` para executar o jogo nem altere a permissão do dispositivo a cada conexão.
 
-Se precisar confirmar a identificação das portas na própria Pi, abra uma delas com `python -m serial.tools.miniterm /dev/ttyUSB0 115200`, toque o piezo e confira se a mensagem começa com `H,1,` ou `H,2,`. Feche o miniterm antes de abrir a mesma porta no jogo. Repita na segunda porta.
+Para identificar J1 e J2, abra **uma porta por vez** com `python -m serial.tools.miniterm /dev/ttyUSB0 115200`, toque o piezo e confira se a linha começa com `H,1,` ou `H,2,`. O Nano pode reiniciar ao abrir a porta; espere a mensagem `READY` e os 300 ms de inicialização. Feche o miniterm antes de abrir a mesma porta em outro programa e repita na segunda porta. `P,...`, `bateu` e `CAL:...` são mensagens de diagnóstico; a Pi processa apenas `H,jogador,alvo,media`.
+
+Depois, confira **as duas portas ao mesmo tempo**, sem iniciar a partida:
+
+```bash
+python -m acertezero.piezo_monitor --port-j1 /dev/ttyUSB0 --port-j2 /dev/ttyUSB1
+```
+
+Substitua os caminhos pelas portas identificadas. Cada batida deve mostrar `Recebido: jogador 1, alvo N` ou `Recebido: jogador 2, alvo N`. O monitor valida o número do jogador em cada porta e aceita alvos 1 a 5, mesmo quando há apenas um piezo montado. Na versão local usada durante a integração, apenas `A4` está habilitado; nesse caso espere `alvo 5`. Encerre com `Ctrl+C` antes de abrir o jogo.
+
+Com apenas `A0` conectado e habilitado em **cada** Nano, faça o teste inicial do jogo no terminal, sem fita:
 
 ```bash
 python -m acertezero.piezo_game --port-j1 /dev/ttyUSB0 --port-j2 /dev/ttyUSB1 --pilot
 ```
 
 No modo `--pilot`, há um alvo ativo por jogador, sempre o alvo 1. Toque J1:1 e veja `acertos J1` aumentar; toque J2:1 e veja `acertos J2` aumentar. Quando ambos tocam quase juntos, os dois acertos são registrados e o território fica igual. Se nenhum dos dois pontuar apesar de os Nanos enviarem `H,...`, confira se as portas foram invertidas: o programa rejeita uma mensagem de J2 na porta informada como J1, e vice-versa. Para acender a fita e usar o botão do juiz, acrescente `--leds --led-count 31 --judge-button` (ajuste `31` à fita). O botão continua no GPIO 22; a fita, no GPIO 16. Pressione o botão do juiz e confirme que a divisão inicial reaparece.
+
+**Atenção:** `--pilot` aceita apenas mensagens do alvo 1 (`A0`). Com somente `A4` habilitado, use o monitor acima para testar a recepção serial; para pontuar no modo piloto, habilite e conecte `A0` em cada Nano.
 
 Depois de validar os dez sensores, rode a partida completa **sem** `--pilot`. O terminal mostra um alvo ativo por jogador; toques em alvos apagados não pontuam. Se já tiver ligado os dez indicadores dos alvos aos GPIOs da Pi, acrescente `--target-led-pins-j1` e `--target-led-pins-j2`, com cinco GPIOs BCM em cada lista, na ordem dos alvos 1 a 5. As duas listas são obrigatórias juntas e não podem repetir GPIOs nem usar GPIO 16 ou 22. Sem essas opções, os alvos ativos aparecem apenas no terminal.
 

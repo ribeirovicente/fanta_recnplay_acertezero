@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from acertezero.game import AcerteZeroGame, Target
 from acertezero.events import RESET
+from acertezero.piezo_monitor import main as monitor_main
 from acertezero.piezo_game import main
 from acertezero.runner import run
 from acertezero.serial_inputs import SerialTargetInputs, TwoNanoInputs, parse_hit_line
@@ -30,6 +31,25 @@ class FakeSerial:
 
 
 class SerialTargetInputsTests(unittest.TestCase):
+    def test_monitor_reports_both_players_and_target_five(self):
+        serial_1, serial_2 = FakeSerial(), FakeSerial()
+        serial_1.data.extend(b"READY\nP,1,5,0,1,2,0,50\nH,1,5,75\n")
+        serial_2.data.extend(b"H,2,5,90\n")
+        serials = iter((serial_1, serial_2))
+
+        def open_input(port, expected_player):
+            return SerialTargetInputs(port, expected_player=expected_player, connection=next(serials))
+
+        output = StringIO()
+        with patch("acertezero.piezo_monitor.SerialTargetInputs", side_effect=open_input):
+            with patch("acertezero.piezo_monitor.time.sleep", side_effect=KeyboardInterrupt):
+                with redirect_stdout(output):
+                    monitor_main(["--port-j1", "J1", "--port-j2", "J2"])
+
+        self.assertIn("Recebido: jogador 1, alvo 5", output.getvalue())
+        self.assertIn("Recebido: jogador 2, alvo 5", output.getvalue())
+        self.assertTrue(serial_1.closed and serial_2.closed)
+
     def test_pilot_cli_configures_one_target_per_player(self):
         with patch("acertezero.piezo_game.SerialTargetInputs") as serial_inputs:
             with patch("acertezero.piezo_game.run") as game_runner:
