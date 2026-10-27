@@ -43,7 +43,10 @@ class ScoreStrip:
 
 
 class DigitalButtons:
-    """Dez botões, ativos em nível baixo e com debounce independente."""
+    """Entradas de toque ativas em nível baixo, com debounce independente.
+
+    Aceita tanto botões quanto ResIn das Bases, que têm pull-up externo de 10 kΩ.
+    """
 
     def __init__(self, pins: Mapping[Target, object], debounce: float = 0.05):
         self.debounce = debounce
@@ -110,7 +113,10 @@ class JudgeButton:
 
 
 class DigitalTargetLights:
-    """Uma saída digital por LED indicador, através de resistor/driver adequado."""
+    """Uma saída ativa em nível alto por alvo.
+
+    Na Base, cada saída ResOut aciona um opto que informa o Nano do alvo ativo.
+    """
 
     def __init__(self, pins: Mapping[Target, object]):
         self.outputs = {}

@@ -20,9 +20,109 @@ O simulador aceita opcionalmente `--target-led-pins-j1` e `--target-led-pins-j2`
 
 As saídas são digitais ativas em nível alto. Use resistores ou drivers adequados aos indicadores escolhidos; não ligue lâmpadas de 5 V ou 12 V diretamente aos GPIOs. O GPIO 16 está reservado para a fita e o GPIO 22 para o botão do juiz quando `--judge-button` estiver ativo.
 
-## Piezos: um Arduino Nano por jogador
+## Bases RJ45 com saídas GPIO (esquemáticos Arena Coca-Cola)
 
-Cada Nano lê cinco piezos em `A0` a `A4`. Grave o mesmo [sketch](./arduino/piezo_target/piezo_target.ino) nas duas placas, com `PLAYER = 1` na primeira e `PLAYER = 2` na segunda. O alvo 1 corresponde a `A0`, o alvo 2 a `A1`, e assim até o alvo 5 em `A4`. Cada placa envia por USB linhas `H,jogador,alvo,leitura`, por exemplo `H,2,3,147`. A [entrada serial](./acertezero/serial_inputs.py) só aceita mensagens do jogador associado àquela porta. O [programa do jogo](./acertezero/piezo_game.py) reúne as duas fontes e o botão do juiz.
+Os conectores RJ45 das placas proprietárias transportam **sinais elétricos e alimentação**, não mensagens TCP/IP. A recomendação para **reutilizar as placas sem modificar trilhas** é usar duas Bases, uma por jogador, e até cinco placas Módulo por Base, uma por alvo. Cada placa Módulo usa **um Nano para seus até cinco piezos**: o Nano junta as detecções em um único acerto daquele alvo. Com os dez alvos montados dessa forma, são dez Nanos. A Base não executa lógica: distribui 5 V e isola os sinais por optoacopladores.
+
+```mermaid
+flowchart LR
+  subgraph P1[Jogador 1]
+    M1[5 alvos<br/>1 Nano e até 5 piezos por alvo] <-->|5 cabos RJ45| B1[Base J1]
+  end
+  subgraph P2[Jogador 2]
+    M2[5 alvos<br/>1 Nano e até 5 piezos por alvo] <-->|5 cabos RJ45| B2[Base J2]
+  end
+  B1 <-->|5 saídas + 5 entradas GPIO| PI[Raspberry Pi 5<br/>regras, placar e sorteio]
+  B2 <-->|5 saídas + 5 entradas GPIO| PI
+  PI --> FITA[Fita do placar]
+  JUIZ[Botão do juiz] --> PI
+```
+
+O protocolo de cada alvo é propositalmente mínimo e **exige pinos separados para os dados da fita e o sinal de acerto**. A Pi escolhe os dois alvos ativos e coloca **apenas um `ResOut` por Base em nível alto**. O opto da Base transforma esse comando em `A0` baixo no Nano selecionado. O Nano acende a iluminação local pelo pino ligado a `BL` e só considera seus piezos enquanto `A0` estiver baixo. Ao detectar uma batida válida, põe sua saída `ArdOut` em nível alto por um pulso definido; o opto do Módulo transforma isso em `ResIn` baixo na Pi. A Pi registra o acerto, escolhe o próximo alvo e altera o placar. O Nano não conhece jogador, número de alvo nem pontuação: a posição do RJ45 na Base identifica o alvo.
+
+| Sinal | Repouso | Ativo | Responsável |
+| --- | --- | --- | --- |
+| `ResOut` na Pi | baixo | alto | Pi seleciona um alvo por jogador. |
+| `A0` no Nano | alto pelo resistor de 10 kΩ | baixo pelo opto da Base | Nano liga/apaga a iluminação local. |
+| `ArdOut` no Nano | baixo | alto por um pulso após batida válida | Nano detecta toque. |
+| `ResIn` na Pi | alto pelo resistor de 10 kΩ a 3,3 V | baixo pelo opto do Módulo | Pi recebe o acerto. |
+
+O firmware mantém `ArdOut` alto **até a Pi desativar o alvo ou por no máximo 500 ms**. Essa duração cobre o debounce e a animação bloqueante do placar após um ponto; ela ainda precisa ser verificada no teste real. Um Módulo sinaliza no máximo um acerto por ativação. Não envie texto, ID ou pontuação entre Nano e Pi. Mantenha a calibração individual dos cinco piezos dentro de cada Nano.
+
+**Por que não usar apenas um Nano por jogador com estas placas intactas?** Cada Módulo entrega à Base **um sinal digital de acerto**, produzido pelo opto após o Nano processar os piezos. Remover quatro Nanos por jogador exigiria redesenhar o caminho analógico dos piezos nos Módulos e na Base, inclusive os resistores e optoacopladores, ou refazer os chicotes. Levar sinais analógicos de piezo por cabos mais longos também exigiria nova validação contra ruído. Se a prioridade passar a ser reduzir o número de Nanos e houver liberdade para refazer essa eletrônica, a alternativa é **um Nano por jogador lendo cinco canais analógicos locais** e comunicação USB com a Pi; nesse caso, a Base proprietária deixa de ser a ponte prevista neste esquema. O [piloto USB preservado](./arduino/piezo_target_usb/piezo_target_usb.ino) é o ponto de partida para essa alternativa, mas sua fiação de sensores deve ser reavaliada.
+
+| Caminho | Microcontroladores | Ligação à Pi | Quando escolher |
+| --- | --- | --- | --- |
+| **Reaproveitar Base e Módulos intactos (recomendado para estas placas)** | 1 Nano por alvo, até 10 | 10 entradas + 10 saídas GPIO | Placas já montadas e distribuição por RJ45 desejada. |
+| **Simplificar o número de placas** | 1 Nano por jogador, 2 ao todo | 2 USB | Sensores podem ser ligados diretamente aos Nanos; Base/Módulos exigiriam retrabalho ou seriam retirados. |
+| 1 Nano por jogador mantendo as placas intactas | Não viável pelo esquema atual | — | O opto de cada Módulo fornece um evento digital, não as cinco leituras analógicas ao Nano central. |
+
+No conector de 13 vias da Base, a numeração do **esquemático** é:
+
+| Pino | Rede | Função na Raspberry Pi |
+| --- | --- | --- |
+| 1 | `+3.3V` | Alimenta os pull-ups de 10 kΩ das cinco entradas. |
+| 2, 4, 6, 8, 10 | `ResOut1..5` | Saídas GPIO, nível alto aciona o opto da Base e puxa a entrada `A0` do Módulo para baixo. |
+| 3, 5, 7, 9, 11 | `ResIn1..5` | Entradas GPIO, repouso alto pelo pull-up de 3,3 V; o opto do Módulo puxa para baixo ao sinalizar acerto. |
+| 12 | `GND` | Referência elétrica da Base e da Pi. |
+| 13 | `+5V` | Mesma rede de alimentação dos RJ45 e do borne `CN1`; não ligar também ao `5V` da Pi quando houver fonte externa. |
+
+Confirme a orientação física do pino 1 e cada fio do chicote com teste de continuidade; a posição vista na foto não garante a ordem dos fios. A Base usa um borne `CN1` para `+5V/GND`. Com fonte externa nesse borne, mantenha o pino 13 **isolado do 5 V da Pi**, conecte o GND (pino 12) e o 3,3 V (pino 1) da Pi nos lugares corretos. Dimensione a fonte externa para todos os Módulos conectados. Não conecte saídas ainda não medidas aos GPIOs: eles aceitam somente níveis de 0 a 3,3 V.
+
+No esquema do Módulo, os piezos `BP1..BP5` chegam ao Nano em `A5, A1, A3, A2, A4`, respectivamente; `A0` recebe o comando da Base. O Nano envia um único sinal `ArdOut` de volta. O conector `BL` alimenta a fita endereçável do alvo: GND, +5 V e dados através de 470 Ω na rede legada `D9`, com um capacitor de 1000 µF na alimentação. O [firmware do piloto USB](./arduino/piezo_target_usb/piezo_target_usb.ino) lê `A0..A4` e envia `H,...` pela Serial, portanto **não corresponde a esta placa**.
+
+**Pinos confirmados por continuidade na placa montada:** `D9 → ArdOut/RFA 330 Ω` e `D12 → BL/RL 470 Ω`. O esquema mostra `ArdOut` no contato **12** do conector `AR` e a rede denominada `D9` no contato **15**; esses números são posições do conector, não nomes dos pinos do Nano. O nome da rede da fita veio do projeto anterior. O [firmware do Módulo](./arduino/piezo_target/piezo_target.ino) usa os pinos físicos medidos.
+
+Para repetir a medição, desconecte a fonte, USB, RJ45 e fita; retire o Nano do soquete. Antes de entrar no modo continuidade/Ω, confira em **V DC** que não há tensão entre `+5V` e `GND` da placa (há um capacitor de 1000 µF). Localize `RFA` de 330 Ω ao lado do opto e `RL` de 470 Ω perto de `BL`. Use sempre **a ponta do resistor voltada ao Nano**, identificada no esquema pela rede `ArdOut` ou `D9`; a outra ponta terá 330/470 Ω no caminho e pode não fazer o multímetro apitar. Encoste uma ponta no contato **D9 do soquete Nano** e a outra na ponta de `RFA`: anote se lê aproximadamente 0 Ω. Repita com a ponta de `RL`; depois faça os mesmos dois testes partindo do contato **D12**. D9→RFA e D12→RL devem medir próximo de 0 Ω, e as combinações cruzadas não. Por fim, teste diretamente D9↔D12: não devem estar em curto. Identifique D9 e D12 pela posição física no [pinout oficial](https://docs.arduino.cc/resources/pinouts/A000005-full-pinout.pdf), não pela numeração 12/15 do conector `AR` no desenho.
+
+### Firmware de cada Módulo/Nano
+
+Grave o mesmo [sketch do Módulo](./arduino/piezo_target/piezo_target.ino) em cada Nano. Instale a biblioteca **Adafruit NeoPixel** pelo Gerenciador de Bibliotecas da Arduino IDE. Antes de gravar, ajuste `TARGET_LED_COUNT` para a quantidade de LEDs do alvo, `TARGET_RED/GREEN/BLUE` para a cor desejada nesse jogador e `TARGET_BRIGHTNESS` para um brilho adequado à fonte. O padrão é **um LED com brilho baixo** para o primeiro teste; os dez Nanos podem compartilhar o mesmo firmware se as cores forem iguais, ou receber configurações de cor diferentes por jogador. O tipo de fita assumido é WS2812B/GRB a 800 kHz; se o modelo real tiver outra ordem de cores, altere `NEO_GRB`.
+
+O array `PIEZO_PINS` mapeia `BP1..BP5 → A5,A1,A3,A2,A4`. Atualmente, `ENABLED` habilita apenas BP5/A4; habilite os demais somente após instalar os sensores, pois entradas soltas podem produzir falsos acertos. `TOUCH_DELTA` usa inicialmente `50` para BP1..BP4 e conserva `25` para BP5/A4, o único canal ajustado no teste anterior. **Calibre cada sensor na montagem nova**; os valores anteriores são apenas pontos de partida. A detecção continua usando a subida da média em janelas de 100 ms e o procedimento `c1` a `c5` pelo Monitor Serial a 115200 baud. Em cada Módulo, `c1` calibra **BP1**, não o alvo 1 do jogador. A Serial mostra `bateu BPn media=...` para diagnóstico; a Pi recebe o acerto exclusivamente por D9, não pela USB.
+
+Teste um Módulo antes de repetir nos demais: com alimentação de 5 V correta e o circuito da Pi ainda desconectado, `A0` alto mantém os LEDs apagados; ligar temporariamente `A0` ao GND ativa a fita em D12. Uma batida num piezo habilitado deve imprimir `bateu BPn` no Monitor Serial e colocar D9 em nível alto por até 500 ms. Soltar `A0` apaga a fita e deixa D9 baixo. Faça o teste com **uma única fonte de 5 V** para o conjunto; não una indiscriminadamente o 5 V do USB e o 5 V de uma fonte externa. Depois confira na Base que o pulso faz `ResIn` cair de 3,3 V para 0 V. O programa da Pi só pontua se o alvo correspondente estiver ativo.
+
+#### Teste de bancada sem Base nem Pi
+
+1. Deixe **Base, Pi e fonte externa desconectadas**. Para o primeiro teste, mantenha `TARGET_LED_COUNT = 1` e brilho baixo. Conecte apenas o Nano pelo USB e confira em **V DC** se o Módulo recebe aproximadamente 5 V entre `+5V` e `GND`, inclusive no conector `BL`. No esquema, `BL` tem pino 1=GND, 2=+5 V e 3=dados; confirme a orientação física do conector por continuidade antes de ligar a fita. Se a alimentação não chegar ao Módulo pelo USB nessa placa, pare: não adicione uma segunda fonte de 5 V enquanto o USB estiver conectado sem antes planejar a isolação da alimentação. Instale uma fita curta com `DIN`, `+5V` e `GND` conferidos pela marcação da própria fita.
+2. Abra o Monitor Serial em **115200 baud**, selecione **Nova linha** e espere `READY`. Envie `s`: deve aparecer `A0 fisico=HIGH; simulacao=OFF; alvo=inativo; D9=LOW`. Envie `l`: a fita de `BL` deve acender por três segundos e apagar sozinha. Esse teste usa D12 sem precisar ativar A0. O sinal de dados WS2812B não pode ser verificado por uma leitura de tensão DC no multímetro; observe os LEDs.
+3. Com a ponta preta do multímetro no GND e a vermelha no D9 ou no lado de `RFA` voltado ao Nano, envie `t`. Espere aproximadamente **5 V por três segundos**, seguido de **0 V**. O comando `t` só funciona com A0 alto. Se quiser verificar também o opto sem a Base, ligue um resistor de **10 kΩ entre o 3,3 V do Nano e `RboOut`**; meça `RboOut` em relação ao GND. Ele deve ficar perto de **3,3 V** em repouso e de **0 V** durante `t`. Sem esse pull-up, `RboOut` fica flutuando e a medição não é conclusiva. Não ligue `RboOut` diretamente ao 3,3 V.
+4. Meça A0 em relação ao GND: deve estar perto de **5 V** pelo resistor de 10 kΩ do Módulo. Envie `a` para **simular no firmware** a ativação do alvo sem adicionar resistor ou mudar eletricamente A0. A fita deve acender. Envie `s` e confirme `A0 fisico=HIGH; simulacao=ON; alvo=ativo; D9=LOW`. A0 permanece como entrada; o comando não testa o caminho elétrico Base → A0.
+5. Para ver os piezos, envie `p`. A cada 100 ms surgem linhas `P,BPn,mínimo,média,máximo,saturadas,amostras`. Toque **BP5/A4**, o único canal habilitado atualmente, e confira que as leituras mudam. Envie `p` de novo para desligar o fluxo antes de testar os acertos. Com o alvo ativado pelo comando `a`, bata em BP5: espere `bateu BP5 media=...` e D9 alto por até 500 ms. Para repetir, envie `a` duas vezes (desativa e reativa), pois o firmware aceita no máximo um acerto por ativação. Ao terminar, envie `a` uma vez para desativar: a fita apaga e D9 fica baixo. Se não houver `bateu`, execute `c5` para calibrar BP5 e ajuste `TOUCH_DELTA[4]`.
+
+Os comandos `l` e `t` só operam com o alvo inativo e sem calibração em curso. A mudança do estado do alvo cancela qualquer teste de bancada. `p` também funciona com o alvo inativo, sem sinalizar acertos; durante a calibração ele fica indisponível. `a` só funciona com A0 fisicamente alto e sem calibração; se a Base puxar A0 para baixo, ela assume o controle e desliga a simulação. Antes de conectar a Base, confirme `simulacao=OFF` com `s` ou reinicie o Nano. Use sempre o multímetro em **tensão DC**, nunca em corrente, para as medições de pinos energizados.
+
+A [entrada GPIO do jogo](./acertezero/piezo_game.py) pode receber as cinco linhas `ResIn` de cada Base com `--input-gpios-j1` e `--input-gpios-j2` (números **BCM**, na ordem dos alvos). O sinal é tratado como ativo em nível baixo. `--input-debounce-ms` começa em 20 ms; o Nano deve manter o acerto por tempo maior do que esse valor mais o intervalo de leitura de 10 ms. Os `--target-led-pins-j1/j2` já existentes passam a representar as cinco saídas `ResOut` de cada Base; o jogo as ativa em nível alto. Use GPIOs distintos para as vinte linhas de entrada e saída, além dos GPIOs 16 (fita) e 22 (juiz). Só ligue a Pi após conferir que cada `ResIn` fica entre 0 e 3,3 V em repouso e durante o acionamento.
+
+### Exemplo de mapeamento das duas Bases
+
+Esta distribuição usa numeração **BCM**, não a posição física no conector de 40 pinos. Mantenha SPI da Pi desativado: os GPIOs 7–11 deste exemplo são compartilhados com SPI. Os GPIOs 2, 3, 14 e 15 ficam livres para I²C e UART; confirme que nenhum outro periférico usa as vinte linhas escolhidas.
+
+| Base | `ResIn1..5` → GPIO BCM (pino físico da Pi) | `ResOut1..5` → GPIO BCM (pino físico da Pi) |
+| --- | --- | --- |
+| Jogador 1 | `5(29),6(31),12(32),13(33),19(35)` | `4(7),17(11),18(12),26(37),27(13)` |
+| Jogador 2 | `20(38),21(40),23(16),24(18),25(22)` | `7(26),8(24),9(21),10(19),11(23)` |
+
+Além dessas vinte linhas, use GPIO 16 (pino físico 36) para a fita e GPIO 22 (pino físico 15) para o juiz. Cada Base precisa do seu pino 1 ligado ao **3,3 V** da Pi (pinos físicos 1 ou 17) e do pino 12 ao **GND** da Pi (por exemplo, pinos físicos 6 ou 9). Os pinos 13 (`+5V`) ficam isolados da Pi se os bornes `CN1` receberem a alimentação externa de 5 V. Não use um cabo Ethernet ligado à porta de rede da Pi: os RJ45 aqui apenas transportam alimentação e sinais discretos.
+
+Antes de conectar os vinte sinais à Pi, faça a seguinte verificação em **cada Base**, com os sinais da Pi desligados: teste continuidade do chicote para identificar os pinos 1–13; confira polaridade e 5 V no borne `CN1`; depois conecte apenas o 3,3 V e o GND da Pi e meça cada `ResIn` em relação ao GND. Em repouso deve haver aproximadamente 3,3 V; quando o Módulo sinalizar, aproximadamente 0 V. Se aparecer 5 V, desligue tudo e revise a montagem. Ao comandar um `ResOut` pelo GPIO, confirme no Módulo que `A0` passa de aproximadamente 5 V para 0 V. Faça esse último teste somente depois de validar a orientação e as tensões da placa.
+
+Depois de validar o firmware de cada Módulo e as medições acima, um comando para a partida completa é:
+
+```bash
+source ~/led-env/bin/activate
+python -m acertezero.piezo_game \
+  --input-gpios-j1 5,6,12,13,19 --input-gpios-j2 20,21,23,24,25 \
+  --target-led-pins-j1 4,17,18,26,27 --target-led-pins-j2 7,8,9,10,11 \
+  --leds --led-count 31 --judge-button
+```
+
+Troque `31` pela quantidade real de LEDs da fita. Não execute esse comando como validação inicial de um chicote ainda desconhecido: ele aciona as saídas durante a animação de partida.
+
+## Piezos: um Arduino Nano por jogador (piloto USB anterior)
+
+Cada Nano lê cinco piezos em `A0` a `A4`. Grave o mesmo [sketch USB preservado](./arduino/piezo_target_usb/piezo_target_usb.ino) nas duas placas, com `PLAYER = 1` na primeira e `PLAYER = 2` na segunda. O alvo 1 corresponde a `A0`, o alvo 2 a `A1`, e assim até o alvo 5 em `A4`. Cada placa envia por USB linhas `H,jogador,alvo,leitura`, por exemplo `H,2,3,147`. A [entrada serial](./acertezero/serial_inputs.py) só aceita mensagens do jogador associado àquela porta. O [programa do jogo](./acertezero/piezo_game.py) reúne as duas fontes e o botão do juiz.
 
 ### Circuito de cada sensor
 

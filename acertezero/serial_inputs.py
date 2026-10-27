@@ -5,6 +5,7 @@ import time
 from .events import RESET
 
 from .game import Target
+from .interfaces import Inputs
 
 
 def parse_hit_line(line: bytes, targets_per_player: int = 5) -> Target | None:
@@ -80,11 +81,12 @@ class SerialTargetInputs:
         self.connection.close()
 
 
-class TwoNanoInputs:
-    """Agrupa eventos das duas portas em uma pequena janela de simultaneidade."""
+class TwoPlayerInputs:
+    """Agrupa eventos de duas fontes em uma pequena janela de simultaneidade."""
 
-    def __init__(self, player_1: SerialTargetInputs, player_2: SerialTargetInputs,
-                 judge=None, window_seconds: float = 0.03, clock=time.monotonic) -> None:
+    def __init__(self, player_1: Inputs, player_2: Inputs,
+                 judge: Inputs | None = None, window_seconds: float = 0.03,
+                 clock=time.monotonic) -> None:
         if window_seconds < 0:
             raise ValueError("A janela de simultaneidade não pode ser negativa.")
         self.player_1 = player_1
@@ -122,3 +124,7 @@ class TwoNanoInputs:
             finally:
                 if self.judge is not None:
                     self.judge.close()
+
+
+# Nome anterior preservado para código que ainda importa a integração USB.
+TwoNanoInputs = TwoPlayerInputs

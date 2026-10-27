@@ -31,6 +31,41 @@ class FakeSerial:
 
 
 class SerialTargetInputsTests(unittest.TestCase):
+    def test_gpio_cli_maps_two_base_boards_without_opening_serial(self):
+        board = ModuleType("board")
+        for pin in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+            setattr(board, f"D{pin}", f"gpio-{pin}")
+        hardware = ModuleType("acertezero.hardware")
+        opened = []
+
+        class FakeButtons:
+            def __init__(self, pins, debounce):
+                opened.append((pins, debounce))
+
+        hardware.DigitalButtons = FakeButtons
+        hardware.DigitalTargetLights = object
+        hardware.GameDisplay = object
+        hardware.JudgeButton = object
+        hardware.ScoreStrip = object
+
+        with patch.dict("sys.modules", {"board": board, "acertezero.hardware": hardware}):
+            with patch("acertezero.piezo_game.sys.platform", "linux"):
+                with patch("acertezero.piezo_game.SerialTargetInputs") as serial_inputs:
+                    with patch("acertezero.piezo_game.run") as game_runner:
+                        with redirect_stdout(StringIO()):
+                            main([
+                                "--input-gpios-j1", "5,6,7,8,9",
+                                "--input-gpios-j2", "10,11,12,13,14",
+                                "--input-debounce-ms", "20",
+                            ])
+
+        self.assertEqual(len(opened), 2)
+        self.assertEqual(opened[0][0][Target(1, 1)], "gpio-5")
+        self.assertEqual(opened[1][0][Target(2, 5)], "gpio-14")
+        self.assertEqual(opened[0][1], 0.02)
+        self.assertIs(game_runner.call_args.args[1].player_1.__class__, FakeButtons)
+        serial_inputs.assert_not_called()
+
     def test_monitor_reports_both_players_and_target_five(self):
         serial_1, serial_2 = FakeSerial(), FakeSerial()
         serial_1.data.extend(b"READY\nP,1,5,0,1,2,0,50\nH,1,5,75\n")
@@ -83,6 +118,7 @@ class SerialTargetInputsTests(unittest.TestCase):
                 mapped["display"] = self
 
         hardware.ScoreStrip = FakeScore
+        hardware.DigitalButtons = object
         hardware.DigitalTargetLights = FakeLights
         hardware.GameDisplay = FakeDisplay
         hardware.JudgeButton = object
