@@ -142,7 +142,39 @@ sudo pinctrl 4 dh
 sudo pinctrl 4 dl
 ```
 
-No primeiro comando a fita do alvo fica apagada (`A0` perto de 5 V); no segundo acende (`A0` perto de 0 V); no terceiro apaga. Se isso funcionar, repita entrada e saída para a Base do jogador 2: `ResIn1 → GPIO BCM 20 / pino físico 38` e `ResOut1 → GPIO BCM 7 / pino físico 26`. Mantenha SPI desativado para usar GPIO 7. Os pinos 1/12 de cada Base continuam em `3V3`/`GND` da Pi, os pinos 13 continuam isolados da Pi, e cada Base recebe 5 V externo em `CN1`.
+No primeiro comando a fita do alvo fica apagada (`A0` perto de 5 V); no segundo acende (`A0` perto de 0 V); no terceiro apaga. Quando houver a segunda Base, repita nela a verificação de entrada e saída: `ResIn1 → GPIO BCM 20 / pino físico 38` e `ResOut1 → GPIO BCM 7 / pino físico 26`. Mantenha SPI desativado para usar GPIO 7. Os pinos 1/12 de cada Base continuam em `3V3`/`GND` da Pi, os pinos 13 continuam isolados da Pi, e cada Base recebe 5 V externo em `CN1`.
+
+#### Jogo piloto com apenas uma Base e um Módulo
+
+**Não é necessário esperar a segunda Base para testar o jogo.** Mantenha apenas a Base do jogador 1 ligada: `ResIn1 → GPIO BCM 5` e `ResOut1 → GPIO BCM 4`, além de `3V3`, `GND` e 5 V externo no `CN1` como acima. O modo `--single-base` cria o jogador 2 virtualmente, sem reservar GPIOs extras. Com tudo desligado, retire qualquer chave manual de `ResOut1` e o LED de teste de `ResIn1` antes de conectar esses sinais à Pi.
+
+Na pasta do projeto na Pi, atualize o código e rode o jogo em modo piloto. A fita do placar é opcional; sem `--leds`, a pontuação aparece no terminal:
+
+```bash
+git pull --ff-only
+source ~/led-env/bin/activate
+python -m acertezero.piezo_game --pilot --single-base \
+  --input-gpios-j1 5 --target-led-pins-j1 4
+```
+
+O terminal mostrará `J1:1` e `J2:1`, mas **J2 é apenas virtual nesse teste**. Só a fita local do Módulo em `RJ45-1` deve acender. Bata em **BP5/A4**: `acertos J1` deve aumentar em uma unidade e a fita deve apagar por cerca de 30 ms para rearmar o Nano antes de acender de novo. Aguarde pelo menos 120 ms e bata novamente; o contador deve aumentar outra vez. `BP5` é o quinto piezo desse Módulo, enquanto `J1:1` é a posição RJ45-1 na Base. Não aperte o comando Serial `a` do Nano: a ativação agora precisa vir fisicamente de `ResOut1` da Pi. Ao encerrar com Ctrl+C, a saída é desligada e a fita local apaga.
+
+Se a fita do placar já estiver ligada ao GPIO 16, acrescente `--leds --led-count 31` ao comando, trocando 31 pela quantidade real de LEDs. Cada batida deve mover o território uma posição a favor de J1. Com o botão do juiz já ligado ao GPIO 22/GND, acrescente também `--judge-button` e teste o reinício. Caso a fita local acenda mas não haja pontos, pare o jogo e repita `sudo pinctrl poll 5` com uma batida para verificar o pulso `ResIn1` antes de investigar o software.
+
+Quando chegar a segunda Base, retire `--single-base`, ligue as entradas e saídas reais dela e passe ao teste dos dois jogadores descrito abaixo. Para manter o mapeamento completo, ligue a saída `ResOut1` da segunda Base ao BCM 7; o BCM 17 fica disponível para `ResOut2` da primeira Base.
+
+**Se aparecer `lgpio.error: 'GPIO busy' ao reiniciar:** encerre primeiro o jogo anterior com Ctrl+C e aguarde o terminal voltar ao prompt. Em outro terminal da Pi, identifique processos ainda ativos e os consumidores dos GPIOs:
+
+```bash
+pgrep -af 'acertezero.piezo_game'
+sudo fuser -v /dev/gpiochip* 2>/dev/null
+gpiodetect
+gpioinfo
+```
+
+Se `gpioinfo`/`gpiodetect` não estiverem disponíveis, instale o pacote `gpiod` com `sudo apt install gpiod`. Não presuma um número fixo para `gpiochip` na Pi 5; procure as linhas dos GPIOs **4 e 5** (também **16**, se usar o placar, e **22**, se usar o botão do juiz). Encerre **somente o PID identificado como uma instância anterior deste jogo** com `kill -INT PID`; se ele não sair, use `kill -TERM PID`, repetindo os comandos de inspeção depois. Se outro programa ou driver do sistema estiver usando o pino, desative esse recurso ou escolha outro GPIO livre; não force a liberação de um pino de outro dispositivo. O programa agora impede duas instâncias do próprio jogo para o mesmo usuário e libera os GPIOs já abertos quando a inicialização falha. Reiniciar a Pi não deve ser necessário para liberar GPIOs de um processo encerrado.
+
+Depois que o jogo abrir, se a fita do alvo acender mas os toques não pontuarem, verifique se a partida já terminou (o placar fica parado aguardando o juiz). Caso esteja em andamento, pare o jogo e teste `ResIn1 → GPIO 5` com `sudo pinctrl poll 5`; dê uma batida e observe um pulso de nível baixo. Se não houver pulso, confira `bateu BP5` no Monitor Serial do Nano, a ativação física de `A0` com o comando `s`, a alimentação, o cabo RJ45 e a continuidade do caminho `D9 → Base → ResIn1`. Se houver pulso e o jogo não pontuar, compartilhe o traceback completo e a saída dos comandos de inspeção acima. Execute `pinctrl poll` apenas com o jogo parado; ele é uma ferramenta de diagnóstico que acessa o hardware diretamente.
 
 Com as duas Bases e um Módulo em `RJ45-1` de cada uma, ative o ambiente Python que já controla a fita e rode o **modo piloto**, sem precisar conectar ainda a fita do placar:
 

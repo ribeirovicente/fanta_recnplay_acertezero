@@ -31,6 +31,42 @@ class FakeSerial:
 
 
 class SerialTargetInputsTests(unittest.TestCase):
+    def test_single_base_pilot_only_claims_connected_pins(self):
+        board = ModuleType("board")
+        board.D4 = "gpio-4"
+        board.D5 = "gpio-5"
+        hardware = ModuleType("acertezero.hardware")
+        mapped = {"inputs": []}
+
+        class FakeLights:
+            def __init__(self, pins):
+                mapped["outputs"] = pins
+
+        class FakeDisplay:
+            def __init__(self, score, lights):
+                mapped["score"] = score
+
+        class FakeButtons:
+            def __init__(self, pins, debounce):
+                mapped["inputs"].append(pins)
+
+        hardware.DigitalButtons = FakeButtons
+        hardware.DigitalTargetLights = FakeLights
+        hardware.GameDisplay = FakeDisplay
+        hardware.JudgeButton = object
+        hardware.ScoreStrip = lambda *args: self.fail("placar nao deve ser aberto")
+
+        with patch.dict("sys.modules", {"board": board, "acertezero.hardware": hardware}):
+            with patch("acertezero.piezo_game.sys.platform", "linux"):
+                with patch("acertezero.piezo_game.run"):
+                    with redirect_stdout(StringIO()):
+                        main(["--pilot", "--single-base", "--input-gpios-j1", "5",
+                              "--target-led-pins-j1", "4"])
+
+        self.assertEqual(mapped["inputs"], [{Target(1, 1): "gpio-5"}, {}])
+        self.assertEqual(mapped["outputs"], {Target(1, 1): "gpio-4"})
+        self.assertIsNone(mapped["score"])
+
     def test_gpio_pilot_drives_targets_without_score_strip(self):
         board = ModuleType("board")
         for pin in (4, 5, 7, 20):
