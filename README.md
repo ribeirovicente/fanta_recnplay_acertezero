@@ -93,6 +93,19 @@ Teste um Módulo antes de repetir nos demais: com alimentação de 5 V correta e
 
 Os comandos `l` e `t` só operam com o alvo inativo e sem calibração em curso. A mudança do estado do alvo cancela qualquer teste de bancada. `p` também funciona com o alvo inativo, sem sinalizar acertos; durante a calibração ele fica indisponível. `a` só funciona com A0 fisicamente alto e sem calibração; se a Base puxar A0 para baixo, ela assume o controle e desliga a simulação. Antes de conectar a Base, confirme `simulacao=OFF` com `s` ou reinicie o Nano. Use sempre o multímetro em **tensão DC**, nunca em corrente, para as medições de pinos energizados.
 
+#### Teste da Base e de um Módulo antes de ligar os GPIOs da Raspberry Pi
+
+Faça este teste depois do teste isolado acima, com **uma Base, um Módulo/Nano e uma fita curta**. Os RJ45 destas placas não são Ethernet de rede. Identifique por continuidade os fios do conector de 13 vias antes de energizar; não use a ordem visual dos fios como numeração. No esquemático da Base, `CN1` recebe `GND` no contato 1 e `+5V` no contato 2, mas confirme a orientação física e as marcas da placa antes de ligar a fonte.
+
+1. Com tudo desligado, conecte uma **fonte regulada de 5 V** adequada à carga ao borne `CN1` da Base. Ligue uma fonte **regulada de 3,3 V** ao pino 1 do conector de 13 vias e seu GND ao pino 12. Pode ser um regulador 5 V → 3,3 V alimentado pela mesma fonte, desde que as saídas sejam medidas antes da ligação. O pino 13 do conector de 13 vias já pertence à rede de 5 V do borne; deixe-o isolado. Não conecte USB ao Nano ao mesmo tempo neste teste, nem a Raspberry. Não dependa do pino 3,3 V do Nano para alimentar a Base sem verificar como a placa o gera quando alimentada externamente.
+2. Com a fonte ainda desligada, conecte o Módulo à porta `RJ45-1` da Base usando o cabo destinado a essas placas, mais a fita `BL` e o piezo BP5. Deixe os outros RJ45 livres. Ligue a fonte e meça, sempre em relação ao GND da Base: `CN1` e a alimentação do Módulo/Nano perto de **5 V**, pino 1 perto de **3,3 V**, `ResIn1` (pino 3) perto de **3,3 V**, e `A0` do Nano perto de **5 V**. A fita deve ficar apagada. Se alguma tensão estiver errada, desligue antes de continuar.
+3. Desligue a fonte e prepare uma chave ou jumper **entre 3,3 V e `ResOut1` (pino 2)**. A placa já inclui um resistor de 330 Ω em série com o LED do optoacoplador dessa entrada; confirme por continuidade que está testando `ResOut1`. Ligue a fonte e feche a chave: `ResOut1` deve ir a 3,3 V, `A0` do Nano deve cair para perto de 0 V, e a fita do Módulo deve acender. Abra a chave: `A0` volta para perto de 5 V e a fita apaga. Se A0 não cair, confira o cabo RJ45, o resistor/opto da Base, GND e alimentação do Módulo. O comando Serial `a` não substitui este teste físico.
+4. Para observar o retorno sem os GPIOs da Pi, ligue um **LED vermelho de teste com resistor de 1 kΩ em série** entre o 3,3 V e `ResIn1` (ânodo voltado ao 3,3 V; cátodo voltado ao `ResIn1`). O LED e o resistor podem ficar numa protoboard ligada apenas aos fios do conector da Base. Com `ResOut1` ativo, bata em BP5: o Nano deve produzir um pulso em D9, o opto do Módulo deve puxar `ResIn1` para perto de 0 V por até 500 ms e o LED de teste deve piscar. Para repetir, abra e feche `ResOut1`, pois o firmware aceita um acerto por ativação. Se tiver osciloscópio ou analisador lógico, observe `ResIn1` diretamente; um multímetro comum pode perder um pulso de 500 ms. Retire o LED de teste antes de conectar a Pi.
+
+Os valores esperados são **5 V somente na alimentação e em A0**, e **0–3,3 V em `ResOut1`/`ResIn1`**. O teste de um canal confirma o caminho completo de `ResOut1 → A0 → fita/piezo → D9 → ResIn1`. Repita com cada RJ45 e com a segunda Base depois que o primeiro canal estiver estável. Para dimensionar a fonte do conjunto completo, some o consumo medido dos Nanos e dos LEDs; um WS2812B pode chegar a cerca de **60 mA por LED** em branco no brilho máximo ([guia da Adafruit](https://learn.adafruit.com/adafruit-neopixel-uberguide/powering-neopixels)).
+
+**Se não houver regulador de 3,3 V:** use a Raspberry Pi 5 apenas para alimentar a rede de 3,3 V da Base durante este teste. Com **Pi e fonte da Base desligadas**, confirme primeiro que o pino 1 do conector da Base realmente é a rede `+3.3V` e que ela não tem continuidade com `+5V` (pino 13). Ligue o **pino físico 1 ou 17 (`3V3`) da Pi → pino 1 da Base** e um **pino físico GND da Pi, por exemplo o 6 → pino 12 da Base**. A fonte externa de 5 V continua exclusiva do borne `CN1`; mantenha o pino 13 da Base e todos os `ResOut`/`ResIn` desconectados da Pi. A chave manual do passo 3 pode ligar `ResOut1` ao mesmo 3,3 V da Base. Energize a Pi primeiro e depois a fonte da Base; ao terminar, desligue primeiro a fonte da Base. Meça novamente as tensões do passo 2 antes de acionar a chave. Assim a Pi participa eletricamente como fonte, mas nenhum GPIO de sinal é usado. Os cinco pull-ups de 10 kΩ da Base consomem no máximo aproximadamente 1,65 mA da rede de 3,3 V; o opto de uma saída ativa acrescenta alguns miliampères. Confira a pinagem física no [guia oficial da Raspberry Pi](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html), pois seus GPIOs não toleram 5 V.
+
 A [entrada GPIO do jogo](./acertezero/piezo_game.py) pode receber as cinco linhas `ResIn` de cada Base com `--input-gpios-j1` e `--input-gpios-j2` (números **BCM**, na ordem dos alvos). O sinal é tratado como ativo em nível baixo. `--input-debounce-ms` começa em 20 ms; o Nano deve manter o acerto por tempo maior do que esse valor mais o intervalo de leitura de 10 ms. Os `--target-led-pins-j1/j2` já existentes passam a representar as cinco saídas `ResOut` de cada Base; o jogo as ativa em nível alto. Use GPIOs distintos para as vinte linhas de entrada e saída, além dos GPIOs 16 (fita) e 22 (juiz). Só ligue a Pi após conferir que cada `ResIn` fica entre 0 e 3,3 V em repouso e durante o acionamento.
 
 ### Exemplo de mapeamento das duas Bases
@@ -107,6 +120,38 @@ Esta distribuição usa numeração **BCM**, não a posição física no conecto
 Além dessas vinte linhas, use GPIO 16 (pino físico 36) para a fita e GPIO 22 (pino físico 15) para o juiz. Cada Base precisa do seu pino 1 ligado ao **3,3 V** da Pi (pinos físicos 1 ou 17) e do pino 12 ao **GND** da Pi (por exemplo, pinos físicos 6 ou 9). Os pinos 13 (`+5V`) ficam isolados da Pi se os bornes `CN1` receberem a alimentação externa de 5 V. Não use um cabo Ethernet ligado à porta de rede da Pi: os RJ45 aqui apenas transportam alimentação e sinais discretos.
 
 Antes de conectar os vinte sinais à Pi, faça a seguinte verificação em **cada Base**, com os sinais da Pi desligados: teste continuidade do chicote para identificar os pinos 1–13; confira polaridade e 5 V no borne `CN1`; depois conecte apenas o 3,3 V e o GND da Pi e meça cada `ResIn` em relação ao GND. Em repouso deve haver aproximadamente 3,3 V; quando o Módulo sinalizar, aproximadamente 0 V. Se aparecer 5 V, desligue tudo e revise a montagem. Ao comandar um `ResOut` pelo GPIO, confirme no Módulo que `A0` passa de aproximadamente 5 V para 0 V. Faça esse último teste somente depois de validar a orientação e as tensões da placa.
+
+### Integração gradual com a Raspberry Pi
+
+Comece com **uma Base e um Módulo/Nano na porta RJ45-1**, mantendo a fonte externa de 5 V no borne `CN1`. Com tudo desligado, retire a chave manual de `ResOut1` e o LED de teste de `ResIn1`. Mantenha a ligação já testada de `3V3` e `GND` entre Pi e Base. Confirme em tensão DC que `ResIn1` fica em cerca de 3,3 V em repouso e nunca recebe 5 V. Então ligue `ResIn1` (pino 3 da Base) ao **GPIO BCM 5 / pino físico 29** da Pi. Ainda não conecte `ResOut1` à Pi. Ligue a Pi antes da fonte externa da Base.
+
+No terminal da Pi, teste a entrada sem executar o jogo:
+
+```bash
+sudo pinctrl 5 ip pu
+sudo pinctrl poll 5
+```
+
+O estado deve ficar alto em repouso. Primeiro, com `ResIn1` confirmado entre 0 e 3,3 V, encoste brevemente **`ResIn1` no GND da Base**: o monitor deve mostrar **1 → 0 → 1**, testando fio e entrada da Pi sem depender do piezo. Depois, acione `ResOut1` com a chave manual de 3,3 V usada no teste anterior, bata no piezo **BP5/A4** do Módulo e observe outra transição breve **1 → 0 → 1** no GPIO 5. O Nano emite um único pulso de até 500 ms por ativação; abra e feche a chave para repetir. Se a ponte manual funcionar e a batida não, meça o pulso em `ResIn1` com um osciloscópio/analisador lógico, ou use o comando `t` no Nano somente com uma ligação USB de dados cuja alimentação de 5 V esteja isolada da fonte externa. Não conecte USB comum e alimentação externa de 5 V ao mesmo Nano sem confirmar a isolação da placa. Encerre `pinctrl poll` com Ctrl+C antes de executar Python. O [pinctrl oficial](https://github.com/raspberrypi/utils/blob/master/pinctrl/README.md) é uma ferramenta de diagnóstico e acessa os GPIOs diretamente.
+
+Em seguida, com tudo desligado, retire a chave manual e conecte `ResOut1` (pino 2 da Base) ao **GPIO BCM 4 / pino físico 7** da Pi. Após ligar Pi e Base, teste a saída:
+
+```bash
+sudo pinctrl 4 op pn dl
+sudo pinctrl 4 dh
+sudo pinctrl 4 dl
+```
+
+No primeiro comando a fita do alvo fica apagada (`A0` perto de 5 V); no segundo acende (`A0` perto de 0 V); no terceiro apaga. Se isso funcionar, repita entrada e saída para a Base do jogador 2: `ResIn1 → GPIO BCM 20 / pino físico 38` e `ResOut1 → GPIO BCM 7 / pino físico 26`. Mantenha SPI desativado para usar GPIO 7. Os pinos 1/12 de cada Base continuam em `3V3`/`GND` da Pi, os pinos 13 continuam isolados da Pi, e cada Base recebe 5 V externo em `CN1`.
+
+Com as duas Bases e um Módulo em `RJ45-1` de cada uma, ative o ambiente Python que já controla a fita e rode o **modo piloto**, sem precisar conectar ainda a fita do placar:
+
+```bash
+source ~/led-env/bin/activate
+python -m acertezero.piezo_game --pilot --input-gpios-j1 5 --input-gpios-j2 20 --target-led-pins-j1 4 --target-led-pins-j2 7
+```
+
+O terminal deve mostrar `J1:1` e `J2:1`, e as duas fitas locais devem acender. Bata em BP5 do jogador 1: `acertos J1` deve aumentar e a fita dele deve apagar brevemente para rearmar o Nano antes de acender novamente. Repita a batida e depois teste o jogador 2. O modo piloto sempre escolhe o alvo 1; **BP5 é o quinto piezo dentro desse alvo**, não o alvo 5 do jogo. Para testar também o placar e o botão do juiz, acrescente `--leds --led-count 31 --judge-button` com a quantidade real de LEDs. Encerre com Ctrl+C; as saídas dos alvos devem apagar. Quando o piloto estiver estável, conecte os demais Módulos e passe às dez entradas e dez saídas do mapeamento acima, sem `--pilot`.
 
 Depois de validar o firmware de cada Módulo e as medições acima, um comando para a partida completa é:
 

@@ -68,7 +68,8 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("Informe duas portas seriais diferentes, uma para cada Nano.")
     if args.input_debounce_ms < 0:
         parser.error("O tempo de debounce não pode ser negativo.")
-    if (gpio_mode or args.leds or args.judge_button) and sys.platform != "linux":
+    if (gpio_mode or args.leds or args.judge_button or args.target_led_pins_j1 is not None
+            or args.target_led_pins_j2 is not None) and sys.platform != "linux":
         parser.error("Os GPIOs exigem a Raspberry Pi com Linux.")
 
     game = AcerteZeroGame(args.led_count, targets_per_player=1 if args.pilot else 5)
@@ -90,8 +91,6 @@ def main(argv: list[str] | None = None) -> None:
     if (args.target_led_pins_j1 is None) != (args.target_led_pins_j2 is None):
         parser.error("Informe os GPIOs dos LEDs dos dois jogadores.")
     if args.target_led_pins_j1 is not None:
-        if not args.leds:
-            parser.error("Os LEDs dos alvos exigem --leds.")
         try:
             target_pins = {
                 1: parse_target_led_pins(args.target_led_pins_j1, game.targets_per_player),
@@ -110,26 +109,25 @@ def main(argv: list[str] | None = None) -> None:
 
     display = None
     judge = None
-    if gpio_mode or args.leds or args.judge_button:
+    if gpio_mode or args.leds or args.judge_button or target_pins is not None:
         try:
             import board
             from .hardware import DigitalButtons, DigitalTargetLights, GameDisplay, JudgeButton, ScoreStrip
         except ImportError as exc:
             raise SystemExit("Bibliotecas da Pi 5 indisponíveis. Ative o ambiente ~/led-env.") from exc
-        if args.leds:
-            score = ScoreStrip(board.D16, args.led_count)
-            if target_pins is None:
-                display = score
-            else:
-                try:
-                    pin_map = {
-                        Target(player, index): getattr(board, f"D{pin}")
-                        for player, pins in target_pins.items()
-                        for index, pin in enumerate(pins, start=1)
-                    }
-                except AttributeError as exc:
-                    parser.error(f"GPIO indisponível nesta placa: {exc}")
-                display = GameDisplay(score, DigitalTargetLights(pin_map))
+        score = ScoreStrip(board.D16, args.led_count) if args.leds else None
+        if target_pins is None:
+            display = score
+        else:
+            try:
+                pin_map = {
+                    Target(player, index): getattr(board, f"D{pin}")
+                    for player, pins in target_pins.items()
+                    for index, pin in enumerate(pins, start=1)
+                }
+            except AttributeError as exc:
+                parser.error(f"GPIO indisponível nesta placa: {exc}")
+            display = GameDisplay(score, DigitalTargetLights(pin_map))
         if args.judge_button:
             judge = JudgeButton(board.D22)
 

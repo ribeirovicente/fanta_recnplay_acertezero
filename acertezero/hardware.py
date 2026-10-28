@@ -140,17 +140,24 @@ class DigitalTargetLights:
 
 
 class GameDisplay:
-    def __init__(self, score: ScoreStrip, targets: DigitalTargetLights):
+    def __init__(self, score: ScoreStrip | None, targets: DigitalTargetLights):
         self.score = score
         self.targets = targets
 
     def show(self, game: AcerteZeroGame, claimed_led: int | None = None) -> None:
+        if game.targets_per_player == 1 and game.active_targets:
+            # No piloto o mesmo Nano continua sorteado; ele precisa ver A0 alto
+            # antes de aceitar outro acerto na proxima ativacao.
+            self.targets.show(())
+            time.sleep(0.03)
         self.targets.show(tuple(game.active_targets.values()))
-        self.score.show(game, claimed_led)
+        if self.score is not None:
+            self.score.show(game, claimed_led)
 
     def start(self, game: AcerteZeroGame) -> None:
         """Anima os indicadores no início ou reinício e revela os alvos ativos."""
-        self.score.show(game)
+        if self.score is not None:
+            self.score.show(game)
         play_start_animation(
             self.targets,
             game.targets_per_player,
@@ -159,4 +166,5 @@ class GameDisplay:
 
     def close(self) -> None:
         self.targets.close()
-        self.score.close()
+        if self.score is not None:
+            self.score.close()
