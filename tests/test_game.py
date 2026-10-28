@@ -293,25 +293,6 @@ class SimulatorTests(unittest.TestCase):
 
 
 class RunnerTests(unittest.TestCase):
-    def test_releases_inputs_when_display_close_fails(self):
-        class FakeInputs:
-            closed = False
-
-            def close(self):
-                self.closed = True
-
-        class FakeDisplay:
-            def show(self, game, claimed_led=None):
-                raise RuntimeError("display failed")
-
-            def close(self):
-                raise RuntimeError("display close failed")
-
-        inputs = FakeInputs()
-        with self.assertRaisesRegex(RuntimeError, "display close failed"):
-            run(AcerteZeroGame(led_count=5), inputs, FakeDisplay())
-        self.assertTrue(inputs.closed)
-
     def test_uses_start_animation_on_initial_display_and_judge_reset(self):
         game = AcerteZeroGame(led_count=5, seed=1)
 

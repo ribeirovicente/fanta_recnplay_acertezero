@@ -1,11 +1,7 @@
 """Executa o jogo com alvos recebidos por USB ou pelos GPIOs das bases."""
 
 import argparse
-import os
 import sys
-import tempfile
-from contextlib import contextmanager, suppress
-from pathlib import Path
 
 from .game import AcerteZeroGame, Target
 from .interfaces import show_start
@@ -45,33 +41,6 @@ class ConsoleDisplay:
             self.display.close()
 
 
-@contextmanager
-def single_game_instance():
-    """Impede duas execuções do jogo de disputarem os mesmos GPIOs."""
-    if sys.platform != "linux":
-        yield
-        return
-    import fcntl
-
-    path = Path(tempfile.gettempdir()) / f"acertezero-game-{os.getuid()}.lock"
-    with path.open("a+", encoding="ascii") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            lock.seek(0)
-            pid = lock.read().strip()
-            raise SystemExit(f"AcerteZero já está em execução (PID {pid or 'desconhecido'}). "
-                             "Encerre a outra instância com Ctrl+C antes de iniciar outra.") from None
-        lock.seek(0)
-        lock.truncate()
-        lock.write(str(os.getpid()))
-        lock.flush()
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
-
-
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="AcerteZero com entradas USB ou GPIO por jogador")
     parser.add_argument("--port-j1", help="porta USB do Nano do jogador 1")
@@ -82,7 +51,6 @@ def main(argv: list[str] | None = None) -> None:
                         help="tempo estável exigido do pulso GPIO (padrão: 20 ms)")
     parser.add_argument("--led-count", type=int, default=31, help="quantidade de LEDs da fita")
     parser.add_argument("--pilot", action="store_true", help="um alvo por jogador para testar o alvo 1")
-    parser.add_argument("--single-base", action="store_true", help="modo piloto com apenas a Base do jogador 1")
     parser.add_argument("--leds", action="store_true", help="acende a fita no GPIO 16")
     parser.add_argument("--judge-button", action="store_true", help="usa o botão do juiz no GPIO 22")
     parser.add_argument("--target-led-pins-j1", metavar="GPIO,...", help="GPIOs BCM que ativam os alvos 1..5 do jogador 1")
@@ -90,17 +58,12 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     serial_mode = args.port_j1 is not None or args.port_j2 is not None
     gpio_mode = args.input_gpios_j1 is not None or args.input_gpios_j2 is not None
-    if args.single_base and (not args.pilot or serial_mode or args.input_gpios_j2 is not None
-                             or args.target_led_pins_j2 is not None):
-        parser.error("--single-base exige --pilot, GPIOs apenas para J1 e nenhuma porta USB.")
     if serial_mode == gpio_mode:
         parser.error("Escolha duas portas USB ou duas listas de GPIOs de entrada.")
     if serial_mode and (args.port_j1 is None or args.port_j2 is None):
         parser.error("Informe as portas USB dos dois jogadores.")
-    if gpio_mode and (args.input_gpios_j1 is None or (not args.single_base and args.input_gpios_j2 is None)):
+    if gpio_mode and (args.input_gpios_j1 is None or args.input_gpios_j2 is None):
         parser.error("Informe as listas de GPIOs dos dois jogadores.")
-    if args.single_base and args.target_led_pins_j1 is None:
-        parser.error("--single-base exige --target-led-pins-j1 para ativar o Módulo.")
     if serial_mode and args.port_j1 == args.port_j2:
         parser.error("Informe duas portas seriais diferentes, uma para cada Nano.")
     if args.input_debounce_ms < 0:
@@ -115,7 +78,7 @@ def main(argv: list[str] | None = None) -> None:
         try:
             input_pins = {
                 1: parse_target_led_pins(args.input_gpios_j1, game.targets_per_player),
-                2: () if args.single_base else parse_target_led_pins(args.input_gpios_j2, game.targets_per_player),
+                2: parse_target_led_pins(args.input_gpios_j2, game.targets_per_player),
             }
         except ValueError as exc:
             parser.error(str(exc))
@@ -125,13 +88,13 @@ def main(argv: list[str] | None = None) -> None:
         if {16, 22}.intersection(all_inputs):
             parser.error("GPIO 16 pertence à fita e GPIO 22 ao botão do juiz.")
     target_pins = None
-    if not args.single_base and (args.target_led_pins_j1 is None) != (args.target_led_pins_j2 is None):
+    if (args.target_led_pins_j1 is None) != (args.target_led_pins_j2 is None):
         parser.error("Informe os GPIOs dos LEDs dos dois jogadores.")
     if args.target_led_pins_j1 is not None:
         try:
             target_pins = {
                 1: parse_target_led_pins(args.target_led_pins_j1, game.targets_per_player),
-                2: () if args.single_base else parse_target_led_pins(args.target_led_pins_j2, game.targets_per_player),
+                2: parse_target_led_pins(args.target_led_pins_j2, game.targets_per_player),
             }
         except ValueError as exc:
             parser.error(str(exc))
@@ -146,35 +109,27 @@ def main(argv: list[str] | None = None) -> None:
 
     display = None
     judge = None
-    score = None
-    try:
-        if gpio_mode or args.leds or args.judge_button or target_pins is not None:
+    if gpio_mode or args.leds or args.judge_button or target_pins is not None:
+        try:
             import board
             from .hardware import DigitalButtons, DigitalTargetLights, GameDisplay, JudgeButton, ScoreStrip
-            score = ScoreStrip(board.D16, args.led_count) if args.leds else None
-            if target_pins is None:
-                display = score
-            else:
-                try:
-                    pin_map = {
-                        Target(player, index): getattr(board, f"D{pin}")
-                        for player, pins in target_pins.items()
-                        for index, pin in enumerate(pins, start=1)
-                    }
-                except AttributeError as exc:
-                    parser.error(f"GPIO indisponível nesta placa: {exc}")
-                display = GameDisplay(score, DigitalTargetLights(pin_map))
-            if args.judge_button:
-                judge = JudgeButton(board.D22)
-    except BaseException as exc:
-        with suppress(Exception):
-            if display is not None:
-                display.close()
-            elif score is not None:
-                score.close()
-        if isinstance(exc, ImportError):
+        except ImportError as exc:
             raise SystemExit("Bibliotecas da Pi 5 indisponíveis. Ative o ambiente ~/led-env.") from exc
-        raise
+        score = ScoreStrip(board.D16, args.led_count) if args.leds else None
+        if target_pins is None:
+            display = score
+        else:
+            try:
+                pin_map = {
+                    Target(player, index): getattr(board, f"D{pin}")
+                    for player, pins in target_pins.items()
+                    for index, pin in enumerate(pins, start=1)
+                }
+            except AttributeError as exc:
+                parser.error(f"GPIO indisponível nesta placa: {exc}")
+            display = GameDisplay(score, DigitalTargetLights(pin_map))
+        if args.judge_button:
+            judge = JudgeButton(board.D22)
 
     def open_player(player: int):
         if serial_mode:
@@ -190,25 +145,20 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         first = open_player(1)
-    except BaseException:
+    except Exception:
         if judge is not None:
-            with suppress(Exception):
-                judge.close()
+            judge.close()
         if display is not None:
-            with suppress(Exception):
-                display.close()
+            display.close()
         raise
     try:
         second = open_player(2)
-    except BaseException:
-        with suppress(Exception):
-            first.close()
+    except Exception:
+        first.close()
         if judge is not None:
-            with suppress(Exception):
-                judge.close()
+            judge.close()
         if display is not None:
-            with suppress(Exception):
-                display.close()
+            display.close()
         raise
     inputs = TwoPlayerInputs(first, second, judge)
 
@@ -217,5 +167,4 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    with single_game_instance():
-        main()
+    main()

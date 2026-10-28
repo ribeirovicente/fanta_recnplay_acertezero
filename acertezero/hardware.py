@@ -2,7 +2,6 @@
 
 import time
 from collections.abc import Mapping
-from contextlib import suppress
 
 import adafruit_pixelbuf
 import digitalio
@@ -56,20 +55,15 @@ class DigitalButtons:
         self.last_raw = {}
         self.changed_at = {}
         now = time.monotonic()
-        try:
-            for target, pin in pins.items():
-                port = digitalio.DigitalInOut(pin)
-                self.inputs[target] = port
-                port.direction = digitalio.Direction.INPUT
-                port.pull = digitalio.Pull.UP
-                pressed = not port.value
-                self.stable[target] = pressed
-                self.last_raw[target] = pressed
-                self.changed_at[target] = now
-        except BaseException:
-            with suppress(Exception):
-                self.close()
-            raise
+        for target, pin in pins.items():
+            port = digitalio.DigitalInOut(pin)
+            port.direction = digitalio.Direction.INPUT
+            port.pull = digitalio.Pull.UP
+            pressed = not port.value
+            self.inputs[target] = port
+            self.stable[target] = pressed
+            self.last_raw[target] = pressed
+            self.changed_at[target] = now
 
     def poll(self) -> list[Target | ResetEvent]:
         now = time.monotonic()
@@ -86,15 +80,8 @@ class DigitalButtons:
         return events
 
     def close(self) -> None:
-        error = None
         for port in self.inputs.values():
-            try:
-                port.deinit()
-            except Exception as exc:
-                if error is None:
-                    error = exc
-        if error is not None:
-            raise error
+            port.deinit()
 
 
 class JudgeButton:
@@ -102,17 +89,12 @@ class JudgeButton:
 
     def __init__(self, pin, debounce: float = 0.05):
         self.port = digitalio.DigitalInOut(pin)
-        try:
-            self.port.direction = digitalio.Direction.INPUT
-            self.port.pull = digitalio.Pull.UP
-            self.debounce = debounce
-            self.stable = not self.port.value
-            self.last_raw = self.stable
-            self.changed_at = time.monotonic()
-        except BaseException:
-            with suppress(Exception):
-                self.port.deinit()
-            raise
+        self.port.direction = digitalio.Direction.INPUT
+        self.port.pull = digitalio.Pull.UP
+        self.debounce = debounce
+        self.stable = not self.port.value
+        self.last_raw = self.stable
+        self.changed_at = time.monotonic()
 
     def poll(self) -> list[Target | ResetEvent]:
         now = time.monotonic()
@@ -138,38 +120,23 @@ class DigitalTargetLights:
 
     def __init__(self, pins: Mapping[Target, object]):
         self.outputs = {}
-        try:
-            for target, pin in pins.items():
-                port = digitalio.DigitalInOut(pin)
-                self.outputs[target] = port
-                port.direction = digitalio.Direction.OUTPUT
-                port.value = False
-        except BaseException:
-            with suppress(Exception):
-                self.close()
-            raise
+        for target, pin in pins.items():
+            port = digitalio.DigitalInOut(pin)
+            port.direction = digitalio.Direction.OUTPUT
+            port.value = False
+            self.outputs[target] = port
 
     def show(self, active: tuple[Target, ...]) -> None:
         # Apaga antes de acender: apenas os alvos escolhidos ficam iluminados.
         for port in self.outputs.values():
             port.value = False
         for target in active:
-            port = self.outputs.get(target)
-            if port is not None:
-                port.value = True
+            self.outputs[target].value = True
 
     def close(self) -> None:
-        error = None
+        self.show(())
         for port in self.outputs.values():
-            with suppress(Exception):
-                port.value = False
-            try:
-                port.deinit()
-            except Exception as exc:
-                if error is None:
-                    error = exc
-        if error is not None:
-            raise error
+            port.deinit()
 
 
 class GameDisplay:
@@ -198,8 +165,6 @@ class GameDisplay:
         )
 
     def close(self) -> None:
-        try:
-            self.targets.close()
-        finally:
-            if self.score is not None:
-                self.score.close()
+        self.targets.close()
+        if self.score is not None:
+            self.score.close()

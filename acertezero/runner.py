@@ -28,7 +28,5 @@ def run(game: AcerteZeroGame, inputs: Inputs, display: Display) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        try:
-            display.close()
-        finally:
-            inputs.close()
+        display.close()
+        inputs.close()
