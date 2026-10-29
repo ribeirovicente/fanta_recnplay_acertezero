@@ -11,10 +11,13 @@ const byte HIT_OUTPUT_PIN = 9;
 const byte LED_DATA_PIN = 12;
 static_assert(HIT_OUTPUT_PIN != LED_DATA_PIN, "Acerto e fita precisam de pinos distintos.");
 const uint16_t TARGET_LED_COUNT = 1;  // Ajustar ao numero real de LEDs em BL.
-const byte TARGET_RED = 32;           // Cor do alvo deste jogador: ajustar R,G,B.
-const byte TARGET_GREEN = 8;
-const byte TARGET_BLUE = 0;
-const byte TARGET_BRIGHTNESS = 50;    // 0..255; manter baixo nos testes.
+const byte PLAYER_NUMBER = 1;         // Grave 1 nos cinco Nanos de J1 e 2 nos cinco de J2.
+static_assert(PLAYER_NUMBER == 1 || PLAYER_NUMBER == 2, "PLAYER_NUMBER deve ser 1 ou 2.");
+// RGB fisico do placar: Pi envia BGR; esta fita recebe GRB via Adafruit_NeoPixel.
+const byte TARGET_RED = PLAYER_NUMBER == 1 ? 48 : 12;
+const byte TARGET_GREEN = PLAYER_NUMBER == 1 ? 13 : 0;
+const byte TARGET_BLUE = PLAYER_NUMBER == 1 ? 1 : 15;
+const byte TARGET_BRIGHTNESS = 255;   // Sem escala extra: iguala os valores enviados ao placar.
 Adafruit_NeoPixel targetLeds(TARGET_LED_COUNT, LED_DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 const byte SENSOR_COUNT = 5;

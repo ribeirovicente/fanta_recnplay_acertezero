@@ -12,10 +12,11 @@ O AcerteZero é um jogo competitivo para dois jogadores. Uma fita WS2812B mostra
 
 ## Regras implementadas
 
-- A fita começa dividida igualmente: jogador 1 em vermelho a partir do `DIN`, jogador 2 em azul na outra extremidade. Se a quantidade de LEDs for ímpar, o LED central começa branco e neutro.
+- A fita começa dividida igualmente: jogador 1 em laranja a partir do `DIN`, jogador 2 em roxo na outra extremidade. Se a quantidade de LEDs for ímpar, o LED central começa branco e neutro. As cores físicas atuais são J1 RGB (48, 13, 1) e J2 RGB (12, 0, 15).
 - Há um alvo ativo para cada jogador, totalizando dois alvos ativos durante a partida. Cada jogador possui cinco alvos possíveis.
 - Um acionamento pontua somente quando corresponde ao alvo ativo daquele jogador. Alvos apagados não alteram o placar.
 - Um ponto ocupa primeiro o LED neutro, se houver; depois toma um LED do adversário. Só o alvo do jogador que pontuou é sorteado novamente, evitando repetir imediatamente o mesmo alvo. O alvo do adversário permanece ativo.
+- O LED conquistado pulsa na cor do jogador que marcou, com intensidade ampliada, antes de mostrar a cor normal do novo território.
 - A partida termina quando um jogador ocupa todos os LEDs. Após a vitória, não há alvos ativos. O programa permanece em execução à espera do juiz.
 - Um aperto do botão do juiz reinicia a partida a qualquer momento: restaura a divisão inicial, remove o vencedor e sorteia um alvo para cada jogador. É necessário soltar e apertar o botão novamente para outro reinício.
 - Entradas detectadas na mesma leitura são validadas juntas contra os alvos que estavam acesos antes da leitura. Entradas repetidas e alvos apagados não geram pontos extras.
@@ -66,6 +67,8 @@ Se os alvos passarem a produzir eventos assíncronos, uma fila com captura indep
 **Integração com a Pi (2026-10-28):** alimentação e ativação da fita por uma Base foram observadas funcionando; o procedimento no [README.md](./README.md#integração-gradual-com-a-raspberry-pi) testa `ResIn1` no GPIO 5 com `pinctrl poll` e `ResOut1` no GPIO 4. O [piloto de uma Base](./README.md#jogo-piloto-com-apenas-uma-base-e-um-módulo) pode usar GPIO 24 e 23 sem fios como entrada e saída virtuais do jogador 2; somente o jogador 1 pontua fisicamente. O programa permite `--target-led-pins-j1/j2` sem `--leds` para testar a fita local sem a fita do placar. No modo `--pilot`, o mesmo alvo é rearmado com 30 ms de desativação após cada acerto.
 
 **Piloto validado (2026-10-29):** duas Bases, cada uma com um único Módulo/Nano em `RJ45-1`, funcionaram com a Raspberry Pi. O [roteiro de duas Bases](./README.md#duas-bases-e-dois-módulos-um-alvo-por-jogador) usa J1 `ResOut1/ResIn1 → BCM 4/5` e J2 `ResOut1/ResIn1 → BCM 23/24`. Cada Módulo representa **um alvo**; BP1..BP5 são sensores internos desse alvo. O firmware local foi ajustado manualmente para habilitar apenas BP2/A1, com `TOUCH_DELTA={25,25,50,50,25}`. O código aceita esse piloto com `--pilot`. O novo perfil `--arena-full` preserva esses quatro GPIOs e acrescenta oito Módulos, ainda sem validação física.
+
+**Cores dos alvos:** o firmware do Nano escolhe J1 ou J2 por `PLAYER_NUMBER`, definido antes da gravação de cada placa. As cores RGB dos alvos coincidem com a saída física do placar: J1 (48, 13, 1), J2 (12, 0, 15). A Base só envia ativação e acerto; ela não informa a cor ao Nano. Regrave os Nanos já montados com os valores de jogador corretos. O valor de brilho do NeoPixel no Nano é 255 para não alterar esses RGB já reduzidos.
 
 Cada Nano atende aos cinco alvos de um jogador, em A0..A4. Na cópia preservada do piloto USB, somente A4 está habilitado, conforme o último ajuste manual; os demais canais são habilitados quando recebem seus piezos. Cada sensor usa um resistor de 1 MΩ em paralelo e 10 kΩ em série com a entrada. O firmware envia `H,jogador,alvo,valor` pela USB; a Pi lê as duas portas com `pyserial` e reúne eventos recebidos em até 30 ms no mesmo lote. O comando `python -m acertezero.piezo_game --port-j1 /dev/ttyUSB0 --port-j2 /dev/ttyUSB1 --pilot --leds --led-count 31 --judge-button` testa primeiro o alvo 1 de cada lado **somente após habilitar A0** no sketch USB. Ajuste as portas e a quantidade de LEDs à montagem. As ligações e a calibração estão no [README.md](./README.md#piezos-um-arduino-nano-por-jogador).
 

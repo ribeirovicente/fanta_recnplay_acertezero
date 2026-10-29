@@ -110,6 +110,51 @@ class AcerteZeroGameTests(unittest.TestCase):
 
 
 class TargetAnimationTests(unittest.TestCase):
+    def test_score_pulse_uses_scoring_players_color(self):
+        pixelbuf = ModuleType("adafruit_pixelbuf")
+        pixelbuf.PixelBuf = type("PixelBuf", (), {})
+        neopixel_write = ModuleType("adafruit_raspberry_pi5_neopixel_write")
+        neopixel_write.neopixel_write = lambda *args: None
+        digitalio = ModuleType("digitalio")
+
+        class FakePixels:
+            def __init__(self, pin, count, **kwargs):
+                self.values = [None] * count
+                self.frames = []
+                self.byteorder = kwargs["byteorder"]
+
+            def __setitem__(self, index, value):
+                self.values[index] = value
+
+            def show(self):
+                self.frames.append(self.values.copy())
+
+        dependencies = {
+            "adafruit_pixelbuf": pixelbuf,
+            "adafruit_raspberry_pi5_neopixel_write": neopixel_write,
+            "digitalio": digitalio,
+        }
+        with patch.dict("sys.modules", dependencies):
+            hardware = importlib.import_module("acertezero.hardware")
+            with patch.object(hardware, "Pi5Pixelbuf", FakePixels), patch.object(hardware.time, "sleep"):
+                for player, base, pulse in (
+                    (1, (1, 48, 13), (4, 192, 52)),
+                    (2, (15, 12, 0), (60, 48, 0)),
+                ):
+                    with self.subTest(player=player):
+                        game = AcerteZeroGame(led_count=5, seed=1)
+                        strip = hardware.ScoreStrip("data", 5)
+                        self.assertEqual(strip.pixels.byteorder, "BGR")
+                        transmitted = (base[2], base[1], base[0])
+                        physical_rgb = (transmitted[1], transmitted[0], transmitted[2])
+                        self.assertEqual(physical_rgb,
+                                         (48, 13, 1) if player == 1 else (12, 0, 15))
+                        strip.show(game)
+                        result = game.hit(game.active_targets[player])
+                        strip.show(game, result.claimed_led)
+                        self.assertEqual(strip.pixels.frames[-2][result.claimed_led], pulse)
+                        self.assertEqual(strip.pixels.frames[-1][result.claimed_led], base)
+
     def test_gpio_outputs_follow_active_targets_and_turn_off_at_victory(self):
         pixelbuf = ModuleType("adafruit_pixelbuf")
         pixelbuf.PixelBuf = type("PixelBuf", (), {})

@@ -31,7 +31,9 @@ class ScoreStrip:
 
     def show(self, game: AcerteZeroGame, claimed_led: int | None = None) -> None:
         if claimed_led is not None:
-            self.pixels[claimed_led] = (80, 80, 80)
+            # Destaca o ponto com a cor do jogador que acabou de ocupar este LED.
+            player_color = self.COLORS[game.owner_at(claimed_led)]
+            self.pixels[claimed_led] = tuple(min(channel * 4, 255) for channel in player_color)
             self.pixels.show()
             time.sleep(0.12)
         for index in range(game.led_count):
