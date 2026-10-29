@@ -19,8 +19,8 @@ Adafruit_NeoPixel targetLeds(TARGET_LED_COUNT, LED_DATA_PIN, NEO_GRB + NEO_KHZ80
 
 const byte SENSOR_COUNT = 5;
 const byte PIEZO_PINS[SENSOR_COUNT] = {A5, A1, A3, A2, A4};  // BP1..BP5.
-const bool ENABLED[SENSOR_COUNT] = {false, false, false, false, true}; // Desative canais sem piezo montado.
-const int TOUCH_DELTA[SENSOR_COUNT] = {50, 50, 50, 50, 25}; // BP5/A4 conserva o ajuste testado; calibre os outros.
+const bool ENABLED[SENSOR_COUNT] = {false, true, false, false, false}; // Desative canais sem piezo montado.
+const int TOUCH_DELTA[SENSOR_COUNT] = {25, 25, 50, 50, 25}; // Limiar por BP1..BP5; calibre na montagem real.
 const int REARM_DROP = 25;                // Queda mínima em relação à média da batida.
 const unsigned long TOUCH_WINDOW_MS = 100;
 const unsigned long REFRACTORY_MS = 120;  // Intervalo mínimo entre dois eventos.
