@@ -1,3 +1,4 @@
+import importlib
 import unittest
 from types import ModuleType
 from contextlib import redirect_stdout
@@ -109,6 +110,48 @@ class AcerteZeroGameTests(unittest.TestCase):
 
 
 class TargetAnimationTests(unittest.TestCase):
+    def test_gpio_outputs_follow_active_targets_and_turn_off_at_victory(self):
+        pixelbuf = ModuleType("adafruit_pixelbuf")
+        pixelbuf.PixelBuf = type("PixelBuf", (), {})
+        neopixel_write = ModuleType("adafruit_raspberry_pi5_neopixel_write")
+        neopixel_write.neopixel_write = lambda *args: None
+        digitalio = ModuleType("digitalio")
+        ports = {}
+
+        class FakePort:
+            def __init__(self, pin):
+                self.value = None
+                self.direction = None
+                ports[pin] = self
+
+            def deinit(self):
+                pass
+
+        digitalio.DigitalInOut = FakePort
+        digitalio.Direction = type("Direction", (), {"OUTPUT": "output"})
+        dependencies = {
+            "adafruit_pixelbuf": pixelbuf,
+            "adafruit_raspberry_pi5_neopixel_write": neopixel_write,
+            "digitalio": digitalio,
+        }
+        with patch.dict("sys.modules", dependencies):
+            hardware = importlib.import_module("acertezero.hardware")
+            pins = {Target(player, index): f"J{player}:{index}"
+                    for player in (1, 2) for index in range(1, 6)}
+            lights = hardware.DigitalTargetLights(pins)
+            display = hardware.GameDisplay(None, lights)
+            game = AcerteZeroGame(led_count=2, targets_per_player=5, seed=1)
+            display.show(game)
+            self.assertEqual({pin for pin, port in ports.items() if port.value},
+                             {f"J{target.player}:{target.number}" for target in game.active_targets.values()})
+
+            game.hit(game.active_targets[1])
+            display.show(game)
+            self.assertEqual(game.active_targets, {})
+            self.assertFalse(any(port.value for port in ports.values()))
+            display.close()
+
+
     def test_start_animation_sweeps_both_sides_and_reveals_active_targets(self):
         frames = []
         delays = []
@@ -293,6 +336,51 @@ class SimulatorTests(unittest.TestCase):
 
 
 class RunnerTests(unittest.TestCase):
+    def test_full_arena_refreshes_target_then_clears_all_on_win(self):
+        game = AcerteZeroGame(led_count=4, targets_per_player=5, seed=1)
+        first_target = game.active_targets[1]
+        other_target = game.active_targets[2]
+
+        class FakeInputs:
+            def __init__(self):
+                self.calls = 0
+
+            def poll(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return [first_target]
+                if self.calls == 2:
+                    return [game.active_targets[1]]
+                raise KeyboardInterrupt
+
+            def close(self):
+                pass
+
+        class FakeDisplay:
+            def __init__(self):
+                self.frames = []
+
+            def start(self, current_game):
+                self.frames.append(tuple(current_game.active_targets.values()))
+
+            def show(self, current_game, claimed_led=None):
+                self.frames.append(tuple(current_game.active_targets.values()))
+
+            def close(self):
+                pass
+
+        display = FakeDisplay()
+        with redirect_stdout(StringIO()), patch("acertezero.runner.time.sleep"):
+            run(game, FakeInputs(), display)
+
+        self.assertEqual(display.frames[0], (first_target, other_target))
+        self.assertEqual(len(display.frames[1]), 2)
+        self.assertNotEqual(display.frames[1][0], first_target)
+        self.assertEqual(display.frames[1][1], other_target)
+        self.assertEqual(display.frames[2], ())
+        self.assertEqual(game.winner, 1)
+
+
     def test_uses_start_animation_on_initial_display_and_judge_reset(self):
         game = AcerteZeroGame(led_count=5, seed=1)
 

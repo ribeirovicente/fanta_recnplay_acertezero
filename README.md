@@ -108,16 +108,16 @@ Os valores esperados são **5 V somente na alimentação e em A0**, e **0–3,3 
 
 A [entrada GPIO do jogo](./acertezero/piezo_game.py) pode receber as cinco linhas `ResIn` de cada Base com `--input-gpios-j1` e `--input-gpios-j2` (números **BCM**, na ordem dos alvos). O sinal é tratado como ativo em nível baixo. `--input-debounce-ms` começa em 20 ms; o Nano deve manter o acerto por tempo maior do que esse valor mais o intervalo de leitura de 10 ms. Os `--target-led-pins-j1/j2` já existentes passam a representar as cinco saídas `ResOut` de cada Base; o jogo as ativa em nível alto. Use GPIOs distintos para as vinte linhas de entrada e saída, além dos GPIOs 16 (fita) e 22 (juiz). Só ligue a Pi após conferir que cada `ResIn` fica entre 0 e 3,3 V em repouso e durante o acionamento.
 
-### Exemplo alternativo para dez alvos (ainda não montado)
+### Mapeamento para dez alvos (montagem completa ainda não testada)
 
-Esta distribuição usa numeração **BCM**, não a posição física no conector de 40 pinos. Mantenha SPI da Pi desativado: os GPIOs 7–11 deste exemplo são compartilhados com SPI. Os GPIOs 2, 3, 14 e 15 ficam livres para I²C e UART; confirme que nenhum outro periférico usa as vinte linhas escolhidas.
+O perfil `--arena-full` usa a distribuição abaixo. Cada coluna está na ordem `RJ45-1` a `RJ45-5` da Base correspondente; **cada Módulo/Nano é um alvo**. A primeira posição preserva as ligações já testadas de J1 (`ResIn1`/`ResOut1` em BCM 5/4) e J2 (BCM 24/23). Use numeração **BCM** no programa; o número entre parênteses é o pino físico do conector de 40 pinos.
 
 | Base | `ResIn1..5` → GPIO BCM (pino físico da Pi) | `ResOut1..5` → GPIO BCM (pino físico da Pi) |
 | --- | --- | --- |
 | Jogador 1 | `5(29),6(31),12(32),13(33),19(35)` | `4(7),17(11),18(12),26(37),27(13)` |
-| Jogador 2 | `20(38),21(40),23(16),24(18),25(22)` | `7(26),8(24),9(21),10(19),11(23)` |
+| Jogador 2 | `24(18),20(38),21(40),25(22),9(21)` | `23(16),7(26),8(24),10(19),11(23)` |
 
-Este exemplo de vinte sinais **não corresponde à montagem atual de dois alvos**: nela J2 usa `ResOut1 → BCM 23` e `ResIn1 → BCM 24`, enquanto aqui esses pinos aparecem em outras posições. Não o use sem refazer o mapeamento e conferir quais GPIOs estão livres. Além dessas vinte linhas, use GPIO 16 (pino físico 36) para a fita e GPIO 22 (pino físico 15) para o juiz. Cada Base precisa do seu pino 1 ligado ao **3,3 V** da Pi (pinos físicos 1 ou 17) e do pino 12 ao **GND** da Pi (por exemplo, pinos físicos 6 ou 9). Os pinos 13 (`+5V`) ficam isolados da Pi se os bornes `CN1` receberem a alimentação externa de 5 V. Não use um cabo Ethernet ligado à porta de rede da Pi: os RJ45 aqui apenas transportam alimentação e sinais discretos.
+Os vinte GPIOs são distintos e deixam livres os BCM 16 (placar, pino físico 36) e 22 (juiz, pino físico 15). Os BCM 7–11 compartilham função com SPI0: mantenha SPI0 desativado, conforme o teste já feito na Pi, e confirme que nenhum outro programa os ocupa. Os BCM 2/3 e 14/15 permanecem disponíveis para I²C e UART. Cada Base precisa do seu pino 1 ligado ao **3,3 V** da Pi (pinos físicos 1 ou 17) e do pino 12 ao **GND** da Pi (por exemplo, pinos físicos 6 ou 9). Os pinos 13 (`+5V`) ficam isolados da Pi se os bornes `CN1` receberem a alimentação externa de 5 V. Não use um cabo Ethernet ligado à porta de rede da Pi: os RJ45 aqui apenas transportam alimentação e sinais discretos.
 
 Antes de conectar os vinte sinais à Pi, faça a seguinte verificação em **cada Base**, com os sinais da Pi desligados: teste continuidade do chicote para identificar os pinos 1–13; confira polaridade e 5 V no borne `CN1`; depois conecte apenas o 3,3 V e o GND da Pi e meça cada `ResIn` em relação ao GND. Em repouso deve haver aproximadamente 3,3 V; quando o Módulo sinalizar, aproximadamente 0 V. Se aparecer 5 V, desligue tudo e revise a montagem. Ao comandar um `ResOut` pelo GPIO, confirme no Módulo que `A0` passa de aproximadamente 5 V para 0 V. Faça esse último teste somente depois de validar a orientação e as tensões da placa.
 
@@ -206,17 +206,22 @@ O terminal deve mostrar `J1:1` e `J2:1`, e **as duas fitas locais devem acender 
 
 Se a fita local de J2 acender, mas J2 não pontuar, pare o jogo e confirme o pulso em `ResIn1`/BCM 24 ao bater em BP2. Se nenhuma das duas fitas acender, confira a alimentação de cada Base e os GPIOs de saída. Se apenas um lado pontuar, não troque os cabos dos jogadores para compensar: confira as ligações dessa Base e os números BCM passados ao comando.
 
-Depois de montar os demais Módulos (um por `RJ45-2` a `RJ45-5` de cada Base), recalibre seus piezos e planeje o mapeamento de **dez entradas e dez saídas GPIO** antes da partida completa. O exemplo abaixo é um mapeamento **alternativo para dez alvos**: ele usa GPIO 7 e atribui GPIOs 23/24 a outras entradas de J2. Exige que GPIO 7 esteja disponível, inclusive com SPI desativado; **não o execute na montagem atual com J2:1 em GPIOs 23/24**. Os números das listas representam a ordem dos alvos 1 a 5 em cada Base.
+Para a montagem completa, conecte os outros quatro Módulos em `RJ45-2` a `RJ45-5` de cada Base e recalibre os piezos de cada Nano. Cada Módulo usa o mesmo firmware e representa **um alvo**; no firmware atual, BP2/A1 é o sensor habilitado dentro dele. Confira as ligações pelo [mapeamento acima](#mapeamento-para-dez-alvos-montagem-completa-ainda-não-testada), inclusive a correspondência entre `ResInN`, `ResOutN` e `RJ45-N`. Com o jogo parado, confira em cada canal que `ResInN` nunca supera 3,3 V e que ativar `ResOutN` liga somente a fita do respectivo Módulo. Não execute o perfil completo com canais ainda não verificados: a animação inicial ativa todos os dez em sequência.
+
+Antes de reservar qualquer GPIO, mostre o plano de ligação na Pi (ou em outro computador):
+
+```bash
+python -m acertezero.piezo_game --arena-full --show-wiring --leds --judge-button
+```
+
+Depois de confirmar a montagem completa, inicie o jogo na Pi:
 
 ```bash
 source ~/led-env/bin/activate
-python -m acertezero.piezo_game \
-  --input-gpios-j1 5,6,12,13,19 --input-gpios-j2 20,21,23,24,25 \
-  --target-led-pins-j1 4,17,18,26,27 --target-led-pins-j2 7,8,9,10,11 \
-  --leds --led-count 31 --judge-button
+python -m acertezero.piezo_game --arena-full --leds --led-count 31 --judge-button
 ```
 
-Troque `31` pela quantidade real de LEDs da fita. Não execute esse comando como validação inicial de um chicote ainda desconhecido: ele aciona as saídas durante a animação de partida.
+Troque `31` pela quantidade real de LEDs do placar. A Pi escolhe **um alvo por jogador** e coloca em nível alto somente os dois `ResOut` correspondentes. Ao receber o pulso de `ResIn` de um alvo ativo, registra o acerto, desativa esse alvo e sorteia outro para o mesmo jogador; o alvo do adversário permanece ativo. Pulsos de alvos apagados são ignorados. Quando alguém ocupa toda a fita, os dez `ResOut` ficam em nível baixo e o jogo aguarda o botão do juiz para reiniciar. O terminal informa os alvos ativos e o vencedor. Encerre o jogo anterior com Ctrl+C antes de iniciar outro; assim os GPIOs são liberados. Para testar apenas os dois Módulos já montados, continue usando `--pilot` com os quatro GPIOs validados.
 
 ## Piezos: um Arduino Nano por jogador (piloto USB anterior)
 

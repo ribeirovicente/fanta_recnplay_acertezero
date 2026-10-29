@@ -10,6 +10,7 @@ from acertezero.piezo_monitor import main as monitor_main
 from acertezero.piezo_game import main
 from acertezero.runner import run
 from acertezero.serial_inputs import SerialTargetInputs, TwoNanoInputs, parse_hit_line
+from acertezero.wiring import ARENA_FULL_INPUTS, ARENA_FULL_OUTPUTS
 
 
 class FakeSerial:
@@ -31,6 +32,60 @@ class FakeSerial:
 
 
 class SerialTargetInputsTests(unittest.TestCase):
+    def test_full_wiring_preview_lists_ten_modules_without_opening_gpio(self):
+        output = StringIO()
+        with redirect_stdout(output):
+            main(["--arena-full", "--show-wiring", "--leds", "--judge-button"])
+
+        lines = output.getvalue().splitlines()
+        self.assertEqual(len(lines), 12)
+        self.assertEqual(lines[0], "J1:1 RJ45-1 ResIn1=GPIO5 ResOut1=GPIO4")
+        self.assertEqual(lines[5], "J2:1 RJ45-1 ResIn1=GPIO24 ResOut1=GPIO23")
+        self.assertEqual(lines[9], "J2:5 RJ45-5 ResIn5=GPIO9 ResOut5=GPIO11")
+        self.assertEqual(lines[-2:], ["Placar=GPIO16", "Juiz=GPIO22"])
+        all_pins = sum((ARENA_FULL_INPUTS[p] + ARENA_FULL_OUTPUTS[p] for p in (1, 2)), ())
+        self.assertEqual(len(all_pins), 20)
+        self.assertEqual(len(set(all_pins)), 20)
+        self.assertFalse({16, 22}.intersection(all_pins))
+
+    def test_full_arena_cli_maps_all_inputs_and_outputs(self):
+        board = ModuleType("board")
+        all_pins = set(sum((ARENA_FULL_INPUTS[p] + ARENA_FULL_OUTPUTS[p] for p in (1, 2)), ()))
+        for pin in all_pins:
+            setattr(board, f"D{pin}", f"gpio-{pin}")
+        hardware = ModuleType("acertezero.hardware")
+        mapped = {"inputs": []}
+
+        class FakeButtons:
+            def __init__(self, pins, debounce):
+                mapped["inputs"].append(pins)
+
+        class FakeLights:
+            def __init__(self, pins):
+                mapped["outputs"] = pins
+
+        hardware.DigitalButtons = FakeButtons
+        hardware.DigitalTargetLights = FakeLights
+        hardware.GameDisplay = lambda score, lights: lights
+        hardware.JudgeButton = object
+        hardware.ScoreStrip = object
+
+        with patch.dict("sys.modules", {"board": board, "acertezero.hardware": hardware}):
+            with patch("acertezero.piezo_game.sys.platform", "linux"):
+                with patch("acertezero.piezo_game.run") as game_runner:
+                    with redirect_stdout(StringIO()):
+                        main(["--arena-full"])
+
+        self.assertEqual(game_runner.call_args.args[0].targets_per_player, 5)
+        self.assertEqual(len(mapped["outputs"]), 10)
+        self.assertEqual(sum(map(len, mapped["inputs"])), 10)
+        self.assertEqual(mapped["inputs"][0][Target(1, 1)], "gpio-5")
+        self.assertEqual(mapped["outputs"][Target(1, 1)], "gpio-4")
+        self.assertEqual(mapped["inputs"][1][Target(2, 1)], "gpio-24")
+        self.assertEqual(mapped["outputs"][Target(2, 1)], "gpio-23")
+        self.assertEqual(mapped["inputs"][1][Target(2, 5)], "gpio-9")
+        self.assertEqual(mapped["outputs"][Target(2, 5)], "gpio-11")
+
     def test_gpio_pilot_drives_targets_without_score_strip(self):
         board = ModuleType("board")
         for pin in (4, 5, 23, 24):

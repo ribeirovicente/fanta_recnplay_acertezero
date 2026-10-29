@@ -8,6 +8,7 @@ from .interfaces import show_start
 from .runner import run
 from .serial_inputs import SerialTargetInputs, TwoPlayerInputs
 from .simulator import parse_target_led_pins
+from .wiring import ARENA_FULL_INPUTS, ARENA_FULL_OUTPUTS
 
 
 class ConsoleDisplay:
@@ -51,13 +52,29 @@ def main(argv: list[str] | None = None) -> None:
                         help="tempo estável exigido do pulso GPIO (padrão: 20 ms)")
     parser.add_argument("--led-count", type=int, default=31, help="quantidade de LEDs da fita")
     parser.add_argument("--pilot", action="store_true", help="um alvo por jogador para testar o alvo 1")
+    parser.add_argument("--arena-full", action="store_true",
+                        help="usa os vinte GPIOs planejados para as duas Bases com cinco alvos cada")
+    parser.add_argument("--show-wiring", action="store_true",
+                        help="mostra o mapeamento dos alvos e sai sem reservar GPIOs")
     parser.add_argument("--leds", action="store_true", help="acende a fita no GPIO 16")
     parser.add_argument("--judge-button", action="store_true", help="usa o botão do juiz no GPIO 22")
     parser.add_argument("--target-led-pins-j1", metavar="GPIO,...", help="GPIOs BCM que ativam os alvos 1..5 do jogador 1")
     parser.add_argument("--target-led-pins-j2", metavar="GPIO,...", help="GPIOs BCM que ativam os alvos 1..5 do jogador 2")
     args = parser.parse_args(argv)
+    if args.arena_full:
+        if (args.pilot or args.port_j1 is not None or args.port_j2 is not None
+                or args.input_gpios_j1 is not None or args.input_gpios_j2 is not None
+                or args.target_led_pins_j1 is not None or args.target_led_pins_j2 is not None):
+            parser.error("--arena-full exige cinco alvos e não pode ser combinado com portas ou listas manuais.")
+        args.input_gpios_j1 = ",".join(map(str, ARENA_FULL_INPUTS[1]))
+        args.input_gpios_j2 = ",".join(map(str, ARENA_FULL_INPUTS[2]))
+        args.target_led_pins_j1 = ",".join(map(str, ARENA_FULL_OUTPUTS[1]))
+        args.target_led_pins_j2 = ",".join(map(str, ARENA_FULL_OUTPUTS[2]))
     serial_mode = args.port_j1 is not None or args.port_j2 is not None
     gpio_mode = args.input_gpios_j1 is not None or args.input_gpios_j2 is not None
+    if args.show_wiring and (not gpio_mode or args.target_led_pins_j1 is None
+                             or args.target_led_pins_j2 is None):
+        parser.error("--show-wiring exige as entradas e saídas GPIO dos dois jogadores.")
     if serial_mode == gpio_mode:
         parser.error("Escolha duas portas USB ou duas listas de GPIOs de entrada.")
     if serial_mode and (args.port_j1 is None or args.port_j2 is None):
@@ -69,7 +86,7 @@ def main(argv: list[str] | None = None) -> None:
     if args.input_debounce_ms < 0:
         parser.error("O tempo de debounce não pode ser negativo.")
     if (gpio_mode or args.leds or args.judge_button or args.target_led_pins_j1 is not None
-            or args.target_led_pins_j2 is not None) and sys.platform != "linux":
+            or args.target_led_pins_j2 is not None) and sys.platform != "linux" and not args.show_wiring:
         parser.error("Os GPIOs exigem a Raspberry Pi com Linux.")
 
     game = AcerteZeroGame(args.led_count, targets_per_player=1 if args.pilot else 5)
@@ -106,6 +123,16 @@ def main(argv: list[str] | None = None) -> None:
             parser.error("GPIO 16 pertence à fita e GPIO 22 ao botão do juiz, quando ativado.")
         if input_pins is not None and set(all_pins).intersection(input_pins[1] + input_pins[2]):
             parser.error("Entradas e saídas dos alvos não podem compartilhar GPIOs.")
+
+    if args.show_wiring:
+        for player in (1, 2):
+            for index, (signal_in, signal_out) in enumerate(zip(input_pins[player], target_pins[player]), start=1):
+                print(f"J{player}:{index} RJ45-{index} ResIn{index}=GPIO{signal_in} ResOut{index}=GPIO{signal_out}")
+        if args.leds:
+            print("Placar=GPIO16")
+        if args.judge_button:
+            print("Juiz=GPIO22")
+        return
 
     display = None
     judge = None
