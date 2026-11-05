@@ -25,6 +25,8 @@ class ScoreStrip:
     """Exibe apenas o território de cada jogador na fita WS2812B."""
 
     COLORS = {0: (12, 12, 12), 1: (1, 48, 13), 2: (15, 12, 0)}
+    START_FLASHES = 5
+    START_FLASH_SECONDS = 0.12
 
     def __init__(self, data_pin, led_count: int):
         self.pixels = Pi5Pixelbuf(data_pin, led_count, auto_write=False, byteorder="BGR")
@@ -38,6 +40,21 @@ class ScoreStrip:
             time.sleep(0.12)
         for index in range(game.led_count):
             self.pixels[index] = self.COLORS[game.owner_at(index)]
+        self.pixels.show()
+
+    def start(self, game: AcerteZeroGame) -> None:
+        """Pisca o placar antes de exibir a divisão inicial da partida."""
+        self._clear()
+        for _ in range(self.START_FLASHES):
+            self.show(game)
+            time.sleep(self.START_FLASH_SECONDS)
+            self._clear()
+            time.sleep(self.START_FLASH_SECONDS)
+        self.show(game)
+
+    def _clear(self) -> None:
+        for index in range(len(self.pixels)):
+            self.pixels[index] = (0, 0, 0)
         self.pixels.show()
 
     def close(self) -> None:
@@ -157,9 +174,10 @@ class GameDisplay:
             self.score.show(game, claimed_led)
 
     def start(self, game: AcerteZeroGame) -> None:
-        """Anima os indicadores no início ou reinício e revela os alvos ativos."""
+        """Pisca o placar, depois anima os alvos e inicia a partida."""
+        self.targets.show(())
         if self.score is not None:
-            self.score.show(game)
+            self.score.start(game)
         play_start_animation(
             self.targets,
             game.targets_per_player,

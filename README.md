@@ -16,7 +16,7 @@ Troque `31` pela quantidade real de LEDs. Digite `1 3`, por exemplo, para aciona
 
 ## LEDs dos alvos
 
-O simulador aceita opcionalmente `--target-led-pins-j1` e `--target-led-pins-j2`, cada um com cinco números de GPIO BCM separados por vírgula, na ordem dos alvos 1 a 5. Sem essas opções, somente a fita do placar acende. Com os dez alvos configurados, no início e a cada reinício os dois lados fazem uma varredura 1→5→1, apagam brevemente e então acendem somente os dois alvos sorteados. Após um acerto, os alvos são atualizados sem repetir a animação. O LED conquistado no placar pulsa na cor do jogador que marcou, em intensidade maior, e volta à intensidade normal.
+O simulador aceita opcionalmente `--target-led-pins-j1` e `--target-led-pins-j2`, cada um com cinco números de GPIO BCM separados por vírgula, na ordem dos alvos 1 a 5. Sem essas opções, somente a fita do placar acende. No início e após o botão do juiz reiniciar a partida, o placar pisca **cinco vezes** (120 ms aceso e 120 ms apagado por vez) e fica aceso com a divisão inicial. Enquanto ele pisca, todas as saídas dos alvos ficam desligadas. Depois, com os alvos configurados, os dois lados fazem uma varredura 1→5→1, apagam brevemente e então acendem somente os dois alvos sorteados. Após um acerto, os alvos são atualizados sem repetir a animação de início. O LED conquistado no placar pulsa na cor do jogador que marcou, em intensidade maior, e volta à intensidade normal.
 
 As saídas são digitais ativas em nível alto. Use resistores ou drivers adequados aos indicadores escolhidos; não ligue lâmpadas de 5 V ou 12 V diretamente aos GPIOs. O GPIO 16 está reservado para a fita e o GPIO 22 para o botão do juiz quando `--judge-button` estiver ativo.
 

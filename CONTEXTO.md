@@ -22,7 +22,7 @@ O AcerteZero é um jogo competitivo para dois jogadores. Uma fita WS2812B mostra
 - Entradas detectadas na mesma leitura são validadas juntas contra os alvos que estavam acesos antes da leitura. Entradas repetidas e alvos apagados não geram pontos extras.
 - Se os dois jogadores acertarem simultaneamente, ambos registram um acerto e recebem novos alvos. Os avanços opostos se anulam: a divisão da fita permanece igual, inclusive quando há um LED neutro. A ordem de leitura dos botões não favorece nenhum jogador.
 - Se apenas um jogador acertar dentro do lote, o placar avança normalmente para ele. O reinício pelo juiz continua tendo prioridade sobre o lote inteiro.
-- Quando os LEDs dos alvos estiverem configurados, o início e o reinício fazem uma varredura simultânea dos dois lados (1→5→1), apagam brevemente e revelam os dois novos alvos. Acertos durante a partida apenas atualizam os alvos, sem repetir a varredura.
+- No início e no reinício pelo juiz, o placar pisca cinco vezes (120 ms aceso e 120 ms apagado), permanecendo com a divisão inicial ao terminar. Durante as piscadas, as saídas dos alvos ficam desligadas. Em seguida, quando os LEDs dos alvos estiverem configurados, ocorre a varredura simultânea dos dois lados (1→5→1), uma pausa apagada e a revelação dos dois novos alvos. Acertos durante a partida apenas atualizam os alvos, sem repetir a sequência.
 
 ## Estrutura do código
 

@@ -110,6 +110,79 @@ class AcerteZeroGameTests(unittest.TestCase):
 
 
 class TargetAnimationTests(unittest.TestCase):
+    def test_score_flashes_five_times_before_staying_on(self):
+        pixelbuf = ModuleType("adafruit_pixelbuf")
+        pixelbuf.PixelBuf = type("PixelBuf", (), {})
+        neopixel_write = ModuleType("adafruit_raspberry_pi5_neopixel_write")
+        neopixel_write.neopixel_write = lambda *args: None
+        digitalio = ModuleType("digitalio")
+        delays = []
+
+        class FakePixels:
+            def __init__(self, pin, count, **kwargs):
+                self.values = [None] * count
+                self.frames = []
+
+            def __len__(self):
+                return len(self.values)
+
+            def __setitem__(self, index, value):
+                self.values[index] = value
+
+            def show(self):
+                self.frames.append(tuple(self.values))
+
+        dependencies = {
+            "adafruit_pixelbuf": pixelbuf,
+            "adafruit_raspberry_pi5_neopixel_write": neopixel_write,
+            "digitalio": digitalio,
+        }
+        with patch.dict("sys.modules", dependencies):
+            hardware = importlib.import_module("acertezero.hardware")
+            with patch.object(hardware, "Pi5Pixelbuf", FakePixels), \
+                    patch.object(hardware.time, "sleep", side_effect=delays.append):
+                game = AcerteZeroGame(led_count=5, seed=1)
+                score = hardware.ScoreStrip("data", 5)
+                score.start(game)
+
+        off = ((0, 0, 0),) * game.led_count
+        on = tuple(hardware.ScoreStrip.COLORS[game.owner_at(i)] for i in range(game.led_count))
+        self.assertEqual(score.pixels.frames, [off] + [frame for _ in range(5) for frame in (on, off)] + [on])
+        self.assertEqual(delays, [0.12] * 10)
+
+    def test_start_keeps_targets_off_until_score_flashes_finish(self):
+        pixelbuf = ModuleType("adafruit_pixelbuf")
+        pixelbuf.PixelBuf = type("PixelBuf", (), {})
+        neopixel_write = ModuleType("adafruit_raspberry_pi5_neopixel_write")
+        neopixel_write.neopixel_write = lambda *args: None
+        digitalio = ModuleType("digitalio")
+        events = []
+
+        class FakeScore:
+            def start(self, game):
+                events.append("score flashes")
+
+        class FakeLights:
+            def show(self, active):
+                events.append(("targets", active))
+
+        dependencies = {
+            "adafruit_pixelbuf": pixelbuf,
+            "adafruit_raspberry_pi5_neopixel_write": neopixel_write,
+            "digitalio": digitalio,
+        }
+        with patch.dict("sys.modules", dependencies):
+            hardware = importlib.import_module("acertezero.hardware")
+            with patch.object(hardware, "play_start_animation", side_effect=lambda *args: events.append("target sweep")):
+                display = hardware.GameDisplay(FakeScore(), FakeLights())
+                game = AcerteZeroGame(led_count=5, seed=1)
+                display.start(game)
+                game.reset()
+                display.start(game)
+
+        expected = [("targets", ()), "score flashes", "target sweep"]
+        self.assertEqual(events, expected * 2)
+
     def test_score_pulse_uses_scoring_players_color(self):
         pixelbuf = ModuleType("adafruit_pixelbuf")
         pixelbuf.PixelBuf = type("PixelBuf", (), {})
