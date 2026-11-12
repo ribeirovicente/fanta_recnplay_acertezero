@@ -150,6 +150,9 @@ class TargetAnimationTests(unittest.TestCase):
         self.assertEqual(score.pixels.frames, [off] + [frame for _ in range(5) for frame in (on, off)] + [on])
         self.assertEqual(delays, [0.12] * 10)
 
+        score.close()
+        self.assertEqual(score.pixels.frames[-1], off)
+
     def test_start_keeps_targets_off_until_score_flashes_finish(self):
         pixelbuf = ModuleType("adafruit_pixelbuf")
         pixelbuf.PixelBuf = type("PixelBuf", (), {})

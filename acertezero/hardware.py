@@ -58,7 +58,7 @@ class ScoreStrip:
         self.pixels.show()
 
     def close(self) -> None:
-        pass
+        self._clear()
 
 
 class DigitalButtons:

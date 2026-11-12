@@ -225,6 +225,47 @@ python -m acertezero.piezo_game --arena-full --leds --led-count 31 --judge-butto
 
 Troque `31` pela quantidade real de LEDs do placar. A Pi escolhe **um alvo por jogador** e coloca em nível alto somente os dois `ResOut` correspondentes. Ao receber o pulso de `ResIn` de um alvo ativo, registra o acerto, desativa esse alvo e sorteia outro para o mesmo jogador; o alvo do adversário permanece ativo. Pulsos de alvos apagados são ignorados. Quando alguém ocupa toda a fita, os dez `ResOut` ficam em nível baixo e o jogo aguarda o botão do juiz para reiniciar. O terminal informa os alvos ativos e o vencedor. Encerre o jogo anterior com Ctrl+C antes de iniciar outro; assim os GPIOs são liberados. Para testar apenas os dois Módulos já montados, continue usando `--pilot` com os quatro GPIOs validados.
 
+### Instalação e início automático em uma Raspberry Pi 5 nova
+
+Use uma instalação atual do Raspberry Pi OS com acesso à internet e uma cópia local deste repositório. Entre com o usuário que executará o jogo e, **antes de ligar as Bases**, confira as ligações da arena completa no [mapeamento acima](#mapeamento-para-dez-alvos-montagem-completa-ainda-não-testada). O instalador configura o perfil de dez alvos; a animação inicial aciona todos os canais em sequência. Ajuste `31` à quantidade real de LEDs do placar.
+
+```bash
+cd ~/fanta_recnplay_acertezero  # troque pelo caminho real do repositorio
+bash scripts/install_pi5.sh --led-count 31
+sudo reboot
+```
+
+Execute o script **sem** `sudo`; ele solicita a senha apenas para as alterações do sistema. Ele atualiza os pacotes do Raspberry Pi OS, instala Python e `lgpio`, cria `~/.venvs/acertezero` e instala Blinka, PixelBuf e o controlador NeoPixel próprio da Pi 5. Também desativa SPI0 em `/boot/firmware/config.txt` (com backup), liberando os GPIOs BCM 7–11 usados pelo perfil completo, adiciona a regra de acesso ao dispositivo `/dev/pio0` para o grupo `gpio` e habilita o serviço `acertezero.service`. O serviço usa `--arena-full --leds --led-count 31 --judge-button` e inicia pelo systemd no boot, **sem login na interface gráfica**. O script pode ser executado novamente para atualizar dependências ou mudar `--led-count`.
+
+O reinício é necessário para aplicar a configuração dos pinos, permissões e eventuais atualizações de kernel. A existência de `/dev/pio0` é indispensável para a fita na Pi 5; se ele continuar ausente depois do reinício, confira a versão do kernel/firmware antes de usar a arena. O instalador não grava firmware nos Nanos; cada Módulo precisa estar com o firmware próprio já carregado e calibrado. `rpi_ws281x`, `adafruit-circuitpython-neopixel` e `pyserial` não são usados pelo caminho de execução `--arena-full` deste projeto.
+
+Depois do reinício, verifique a execução e acompanhe os eventos:
+
+```bash
+systemctl status acertezero.service --no-pager
+journalctl -u acertezero.service -b -f
+ls -l /dev/pio0
+```
+
+Para parar o jogo e liberar os GPIOs durante um teste manual, use `sudo systemctl stop acertezero.service`. Para retomá-lo, use `sudo systemctl start acertezero.service`. Para impedir o início no boot, use `sudo systemctl disable --now acertezero.service`.
+
+### Diagnóstico de travamentos e LEDs com cores erradas
+
+Se o jogo parar, **antes de cortar a energia**, verifique por SSH se a Pi ainda responde. Se responder, consulte o serviço e o kernel; se nem SSH responder, anote se os LEDs e a alimentação das Bases continuam ligados. Após um reinício forçado, consulte o boot anterior (se o journal o tiver preservado):
+
+```bash
+systemctl status acertezero.service --no-pager
+sudo journalctl -u acertezero.service -b -n 100 --no-pager
+sudo journalctl -k -b -n 100 --no-pager
+vcgencmd get_throttled
+vcgencmd pmic_read_adc EXT5V_V
+uname -a
+```
+
+Depois de reiniciar, use `sudo journalctl --list-boots` e `sudo journalctl -k -b -1 -n 100 --no-pager` para verificar o boot anterior. Em `get_throttled`, `0x1` indica subtensão atual e `0x10000` indica subtensão ocorrida neste boot. Procure também erros `rp1_pio`, `BUG: scheduling while atomic`, `kernel panic`, `mmc` ou `EXT4` nos registros. Se o serviço caiu, o traceback do Python estará em `journalctl -u`; o placar pode reter o último quadro mesmo depois da queda, pois WS2812B não apaga automaticamente sem um novo comando. O programa agora envia um quadro apagado ao placar ao encerrar normalmente; isso não funciona se a Pi perder energia ou travar no kernel.
+
+Para isolar a causa, pare o serviço antes de iniciar qualquer teste manual (`sudo systemctl stop acertezero.service`). Teste primeiro a Pi sem o placar e sem as Bases; depois conecte somente o placar; por fim adicione uma Base e um Módulo por vez. Confira a alimentação de 5 V **nos terminais da fita e dos Módulos durante a animação**, a continuidade do GND entre Pi, fonte e fita, e a presença de um conversor de nível 3,3 V → 5 V no dado do placar. Um único LED com cor aleatória costuma indicar falta de alimentação adequada ou sinal de dados marginal, mas não prova qual deles falhou. Não conecte o 5 V da fonte externa ao 5 V da Pi. Se a Pi inteira travar e os logs mostrarem erros `rp1_pio`, registre a versão do kernel antes de atualizar os pacotes estáveis do Raspberry Pi OS; não use `rpi-update` experimental como primeiro passo.
+
 ## Piezos: um Arduino Nano por jogador (piloto USB anterior)
 
 Cada Nano lê cinco piezos em `A0` a `A4`. Grave o mesmo [sketch USB preservado](./arduino/piezo_target_usb/piezo_target_usb.ino) nas duas placas, com `PLAYER = 1` na primeira e `PLAYER = 2` na segunda. O alvo 1 corresponde a `A0`, o alvo 2 a `A1`, e assim até o alvo 5 em `A4`. Cada placa envia por USB linhas `H,jogador,alvo,leitura`, por exemplo `H,2,3,147`. A [entrada serial](./acertezero/serial_inputs.py) só aceita mensagens do jogador associado àquela porta. O [programa do jogo](./acertezero/piezo_game.py) reúne as duas fontes e o botão do juiz.
